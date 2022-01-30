@@ -197,7 +197,7 @@ export class Database<T = unknown, PAR = unknown> extends TypedEmitter<QmEvents<
         const formatted = this.__formatData(res);
         
         // allow db.remove(key, d); and: db.remove(key, data => data.foo == "bar") 
-        const FilterFunction = _.isFunction(value) ? value : (v) => value === v;
+        const FilterFunction = _.isFunction(value) ? value : (v) => value === v.data;
         
         const Data = Util.pick(formatted, key) as unknown as V;
         return Data.filter(FilterFunction)
@@ -441,6 +441,18 @@ export class Database<T = unknown, PAR = unknown> extends TypedEmitter<QmEvents<
 
         return typeof options?.limit === "number" && options.limit > 0 ? arb.slice(0, options.limit) : arb;
     }
+    
+    /**
+     * Returns only the keys from the Database
+     * @param {?AllQueryOptions} options The request options
+     * @returns {Promise<AllData>}
+     */
+    public async keys(options?: AllQueryOptions, value: unknown | unknown[]) {
+        const Data = this.all(options);
+        const FilterFunction = value ? _.isFunction(value) ? value : (v) => value === v.data : null;
+        if(FilterFunction) return Data.filter(FilterFunction);
+        return Data;
+    }
 
     /**
      * Drops this database
@@ -476,7 +488,7 @@ export class Database<T = unknown, PAR = unknown> extends TypedEmitter<QmEvents<
      * @param {any|any[]} value The value or array of values
      * @returns {Promise<any>}
      */
-    public async push(key: string, value: unknown | unknown[]) {
+    public async remove(key: string, value: unknown | unknown[]) {
         const data = await this.get(key);
         // eslint-disable-next-line eqeqeq, no-eq-null
         if (data == null) {
@@ -485,7 +497,7 @@ export class Database<T = unknown, PAR = unknown> extends TypedEmitter<QmEvents<
         }
         if (!Array.isArray(data)) throw new Error("TARGET_EXPECTED_ARRAY");
         // allow db.remove(key, d); and: db.remove(key, data => data.foo == "bar") 
-        const FindFunction = _.isFunction(value) ? value : (v) => value === v;
+        const FindFunction = _.isFunction(value) ? value : (v) => value === v.data;
         const DataIndex = data.findIndex(FindFunction);
         // If index found, remove it
         if (DataIndex > -1) {
