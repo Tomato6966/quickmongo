@@ -158,6 +158,7 @@ export class Database<T = unknown, PAR = unknown> extends TypedEmitter<QmEvents<
      */
     public async getRaw(key: string): Promise<DocType<T>> {
         this.__readyCheck();
+        if(!key || typeof key !== "string") return new Error("No Key added")
         const doc = await this.model.findOne({
             ID: Util.getKey(key)
         });
@@ -179,9 +180,27 @@ export class Database<T = unknown, PAR = unknown> extends TypedEmitter<QmEvents<
      * @returns {Promise<any>}
      */
     public async get<V = T>(key: string): Promise<V> {
+        if(!key || typeof key !== "string") return new Error("No Key added");
         const res = await this.getRaw(key);
         const formatted = this.__formatData(res);
         return Util.pick(formatted, key) as unknown as V;
+    }
+    
+    /**
+     * Get item from the database while filtering the Data
+     * @param {string} key The key
+     * @returns {Promise<any>}
+     */
+    public async filter<V = T>(key: string, value: unknown | unknown[]): Promise<V> {
+        if(!key || typeof key !== "string") return new Error("No Key added");
+        const res = await this.getRaw(key);
+        const formatted = this.__formatData(res);
+        
+        // allow db.remove(key, d); and: db.remove(key, data => data.foo == "bar") 
+        const FilterFunction = _.isFunction(value) ? value : (v) => value === v;
+        
+        const Data = Util.pick(formatted, key) as unknown as V;
+        return Data.filter(FilterFunction)
     }
 
     /**
@@ -448,6 +467,30 @@ export class Database<T = unknown, PAR = unknown> extends TypedEmitter<QmEvents<
         if (!Array.isArray(data)) throw new Error("TARGET_EXPECTED_ARRAY");
         if (Array.isArray(value)) return await this.set(key, data.concat(value));
         data.push(value);
+        return await this.set(key, data);
+    }
+
+    /**
+     * similar to db.push() but removes the data if available instead 
+     * @param {string} key The key
+     * @param {any|any[]} value The value or array of values
+     * @returns {Promise<any>}
+     */
+    public async push(key: string, value: unknown | unknown[]) {
+        const data = await this.get(key);
+        // eslint-disable-next-line eqeqeq, no-eq-null
+        if (data == null) {
+            // throw new Error("NO DATA TO REMOVE"); // Would suggest to just return null
+            return null;
+        }
+        if (!Array.isArray(data)) throw new Error("TARGET_EXPECTED_ARRAY");
+        // allow db.remove(key, d); and: db.remove(key, data => data.foo == "bar") 
+        const FindFunction = _.isFunction(value) ? value : (v) => value === v;
+        const DataIndex = data.findIndex(FindFunction);
+        // If index found, remove it
+        if (DataIndex > -1) {
+          data.splice(DataIndex, 1);
+        }
         return await this.set(key, data);
     }
 
