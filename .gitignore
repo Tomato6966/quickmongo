@@ -1,8 +1,0 @@
-node_modules/
-coverage/
-dist/
-test/
-.vscode/
-yarn.lock
-package-lock.json
-globalConfig.json
