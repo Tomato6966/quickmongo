@@ -5,6 +5,12 @@ Quick Mongodb wrapper for beginners that provides key-value based interface.
 > Added an IN MEMORY CACHE by using `this.cache = new Map()`;
 > You can't access them, and **just use it as `quickmongo`**
 > The File handles all of the caching by itsself! (also resetting the cache if something changes in the db.........
+> *Fastens it up by ~90-125% (if you do many .set() requests == POST)*
+> *Fastens it up by over 300% (if you do many .get() requests == GET)*
+
+**Why is this good?**
+> You do not spam mongodb, and it's userfriendly, you don't need something like `redis` or `cache-manager`
+> NOTE: It's the simplest way of caching, and only applies if u got the request ONCE, so it's not "that efficient" but good enough if u plan on running ur app/programm for several hours!
 
 to install it: `npm install https://github.com/Tomato6966/quickmongo`
 
