@@ -87,12 +87,8 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     }
     async get(key) {
         var RawData = null;
-        if(this.cache.has(key)) {
-            RawData = this.cache.get(key);
-            key == "748088208427974676" ? console.log(`${"GET".blue} ${String(this.cache.has(key)).green} for the Key: ${String(key).green} in ${String(this.model.collection.name).green}`.dim) : null
-        }
+        if(this.cache.has(key)) RawData = this.cache.get(key);
         else {
-            key == "748088208427974676" ? console.log(`${"FETCH-DB".blue} ${String(this.cache.has(key)).green} for the Key: ${String(key).green} in ${String(this.model.collection.name).green}`.dim) : null
             RawData = await this.getRaw(key)
             this.cache.set(key, RawData); 
         }
@@ -103,10 +99,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         return await this.get(key)
     }
     async set(t, e, n = -1) {
-        if(this.cache.has(t)) {
-            t == "748088208427974676" ? console.log(`${"DELETE".blue} Cache for ${String(t).green} in ${String(this.model.collection.name).green} [db.set()]`.dim) : null;
-            this.cache.delete(t);
-        }
+        if(this.cache.has(t)) this.cache.delete(t);
         if (this.__readyCheck(), t.includes(".")) {
             const r = UtilClass.getKeyMetadata(t);
             const o = await this.model.findOne({
