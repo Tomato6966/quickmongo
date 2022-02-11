@@ -2,6 +2,12 @@
 
 Quick Mongodb wrapper for beginners that provides key-value based interface.
 
+> Added an IN MEMORY CACHE by using `this.cache = new Map()`;
+> You can't access them, and **just use it as `quickmongo`**
+> The File handles all of the caching by itsself! (also resetting the cache if something changes in the db.........
+
+to install it: `npm install https://github.com/Tomato6966/quickmongo`
+
 ![](https://camo.githubusercontent.com/ee0b303561b8c04223d4f469633e2088968cf514f0f6901c729331c462a32f10/68747470733a2f2f63646e2e646973636f72646170702e636f6d2f6174746163686d656e74732f3739333638393539323431343939343436362f3833323039343438363834353834393631302f6c6f676f2e37393539646231325f35302e706e67)
 
 # Installing
