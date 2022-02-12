@@ -1,6 +1,6 @@
 {
   "name": "quickmongo",
-  "version": "5.1.2",
+  "version": "6.3.0",
   "description": "Quick Mongodb wrapper for beginners that provides key-value based interface.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -39,7 +39,7 @@
     "enmap",
     "endb"
   ],
-  "author": "DevAndromeda <contact@dhunganakunjan.com.np>",
+  "author": "Original: DevAndromeda <contact@dhunganakunjan.com.np> | Cached-Version: Tomato6966",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/CesiumLabs/quickmongo/issues"
