@@ -138,9 +138,11 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 } : {
                     data: s
                 }
-            }), this.cache.delete(r.master), await this.get(r.master)
+            }), 
+            this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`), 
+            this.cache.delete(r.master), 
+            await this.get(r.master)
         } else {
-            
             return await this.model.findOneAndUpdate({
                 ID: t
             }, {
@@ -152,7 +154,10 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 }
             }, {
                 upsert: !0
-            }), this.cache.delete(t), await this.get(t)
+            }), 
+            this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`), 
+            this.cache.delete(t),
+            await this.get(t)
         }
     }
     async has(key, forceFetch = false) {
@@ -171,8 +176,9 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         if (n.data !== null && typeof n.data != "object") throw new Error("CANNOT_TARGET_NON_OBJECT");
         let r = Object.assign({}, n.data);
         // if it's in the cache, delete it
-        if(this.cache.has(t)) this.cache.delete(t);
-        if(this.cache.has(e.master)) this.cache.delete(e.master);
+        this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`), 
+        this.cache.delete(t);
+        this.cache.delete(e.master);
         
         return lodash.unset(r, e.target), await n.updateOne({
             $set: {
@@ -234,9 +240,10 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     async all(t, forceFetch = false) {
         this.__readyCheck();
         let returnData = null;
+        let keyForAll = `ALLDATABASE_${this.model.collection.name}_ALLDATABASE`;
         // | IF IN CACHE     |  AND NO FORCEFETCH |   AND CACHE ENABLED   |  AND IT'S MAX DURATION is not REACHED YET
-        if(this.cache.has(t) && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(t)) > 0)) {
-            returnData = this.cache.get(t); // use the cache
+        if(this.cache.has(keyForAll) && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(keyForAll)) > 0)) {
+            returnData = this.cache.get(keyForAll); // use the cache
         } else {
             let n = (await this.model.find()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
                 ID: r.ID,
@@ -249,9 +256,9 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             }
             returnData = typeof t?.limit == "number" && t.limit > 0 ? n.slice(0, t.limit) : n
             // update the cache
-            this.cache.set(t, returnData); 
+            this.cache.set(keyForAll, returnData); 
             // set value when it got set to the cache for the max Duration
-            this.timeoutcache.set(t, Date.now()); 
+            this.timeoutcache.set(keyForAll, Date.now()); 
         }
         return returnData;
     }
