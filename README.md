@@ -14,12 +14,66 @@ Quick Mongodb wrapper for beginners that provides key-value based interface.
 
 to install it: `npm install https://github.com/Tomato6966/quickmongo`
 
+## EXTRAS ADDED:
+
+> Getting things out of the cache will work until the max. cache duration is reached
+
+```js
+// How to change them
+// change the max. cache duration for db.ping()
+process.env.DB_cache_ping = 10_000; // Delete the cache after X ms | < 0 === never delete [DEFAULT: 60_000]
+// change the max. cache duration for db.get("key", [optional: ForceFetch <true/false>])
+process.env.DB_cache_get = 0; // Delete the cache after X ms | < 0 === never delete [DEFAULT: 300_000]
+// change the max. cache duration for db.all([optional: ForceFetch <true/false>])
+process.env.DB_cache_all = 0; // Delete the cache after X ms | < 0 === never delete [DEFAULT: 600_000]
+```
+
+```js
+
+const { Database } = require("quickmongo"); // npm i https://github.com/Tomato6966/quickmongo
+const mongoUri = process.env.mongoUri;
+const db = new Database(mongoUri);
+
+// CHANGES FOR THE .get() method
+db.get("key"); // 1. Time getting --> Fetch from db
+db.get("key"); // 2. Time getting --> Get from cache (instant) 
+db.get("key", true) // 3. Time getting --> Force-fetch from db (you can add ,true for fetching)
+
+// CHANGES FOR THE .ping() METHOD
+db.ping(); // 1. Time getting --> PING THE db
+db.ping(); // 2. Time getting --> Get the last ping, which u got before (instant) ( will work until the max. cache duration is reached )
+db.ping(true) // 3. Time getting --> Force-fetch from db (you can add ,true for fetching)
+
+// CHANGES FOR THE .all() METHOD
+db.all(); // 1. Time getting --> Fetch from the db
+db.all(); // 2. Time getting --> Get it from the cache (intsant)
+db.all(true) // 3. Time getting --> Force-fetch from db (you can add , true for fetching)
+
+```
+
+## Suggestions:
+
+When creating the Database, add mongoose options, to spread the load on your db!
+
+```js
+const { Database } = require("quickmongo"); // npm i https://github.com/Tomato6966/quickmongo
+const mongoUri = process.env.mongoUri;
+const db = new Database(mongoUri, {
+    useUnifiedTopology: true, // allow pools
+    maxPoolSize: 100, // maximum spreader
+    minPoolSize: 50, // minimum spreader
+    writeConcern: "majority", // writer before get
+});
+
+```
+
 ![](https://camo.githubusercontent.com/ee0b303561b8c04223d4f469633e2088968cf514f0f6901c729331c462a32f10/68747470733a2f2f63646e2e646973636f72646170702e636f6d2f6174746163686d656e74732f3739333638393539323431343939343436362f3833323039343438363834353834393631302f6c6f676f2e37393539646231325f35302e706e67)
 
 # Installing
 
 ```bash
-$ npm install --save quickmongo
+npm install --save https://github.com/Tomato6966/quickmongo # for the adjusted one with cache
+npm install --save quickmongo # for the original without cache
 ```
 
 # Documentation
