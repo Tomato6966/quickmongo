@@ -21,11 +21,11 @@ to install it: `npm install https://github.com/Tomato6966/quickmongo`
 ```js
 // How to change them
 // change the max. cache duration for db.ping()
-process.env.DB_cache_ping = 10_000; // Delete the cache after X ms | < 0 === never delete [DEFAULT: 60_000]
+process.env.DB_cache_ping = 10_000; // Delete the cache after X ms | < 0 === never delete [DEFAULT: 60_000], -1 (or less) == disabled cache
 // change the max. cache duration for db.get("key", [optional: ForceFetch <true/false>])
-process.env.DB_cache_get = 0; // Delete the cache after X ms | < 0 === never delete [DEFAULT: 300_000]
+process.env.DB_cache_get = 0; // Delete the cache after X ms | 0 === never delete [DEFAULT: 300_000], -1 (or less) == disabled cache
 // change the max. cache duration for db.all([optional: ForceFetch <true/false>])
-process.env.DB_cache_all = 0; // Delete the cache after X ms | < 0 === never delete [DEFAULT: 600_000]
+process.env.DB_cache_all = 0; // Delete the cache after X ms | 0 === never delete [DEFAULT: 600_000], -1 (or less) == disabled cache
 ```
 
 ```js
@@ -65,6 +65,34 @@ const db = new Database(mongoUri, {
     writeConcern: "majority", // writer before get
 });
 
+```
+## Tests:
+
+If you're interested to see it changes test this:
+
+```js
+const { Database } = require("quickmongo"); // npm i https://github.com/Tomato6966/quickmongo
+const mongoUri = process.env.mongoUri;
+
+process.env.DB_cache_ping = 10_000; // allow the cache to be just 10 sec in there...
+
+const db = new Database(mongoUri, {
+    useUnifiedTopology: true, // allow pools
+    maxPoolSize: 100, // maximum spreader
+    minPoolSize: 50, // minimum spreader
+    writeConcern: "majority", // writer before get
+});
+// first time
+setTimeout(async() => console.log(`Ping: ${await db.ping()}`), 1_000) // fetch from the db (DIRECT VALUE FROM MONGODB)
+// 2 times from cache (will be instant when the timeout executes)
+setTimeout(async() => console.log(`Ping: ${await db.ping()}`), 5_000) // cache
+setTimeout(async() => console.log(`Ping: ${await db.ping()}`), 8_000) // cache
+// cache ranned out, after first fetch, so fetch it again ( you cahgned process.env.DB_cache_ping to 10secs)
+setTimeout(async() =>console.log(`Ping: ${await db.ping()}`), 11_000) // fetch (DIRECT VALUE FROM MONGODB)
+// get it from the cache again as it's already in there
+setTimeout(async() => console.log(`Ping: ${await db.ping()}`), 12_000) // get from cache
+// force-fetch from the DB (DIRECT VALUE FROM MONGODB)
+setTimeout(async() => console.log(`Ping: ${await db.ping(true)}`), 12_000) 
 ```
 
 ![](https://camo.githubusercontent.com/ee0b303561b8c04223d4f469633e2088968cf514f0f6901c729331c462a32f10/68747470733a2f2f63646e2e646973636f72646170702e636f6d2f6174746163686d656e74732f3739333638393539323431343939343436362f3833323039343438363834353834393631302f6c6f676f2e37393539646231325f35302e706e67)
