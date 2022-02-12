@@ -58,6 +58,12 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         this.__child__ = !1;
         this.model = null;
         this.cache = new Map(),
+        this.timeoutcache = new Map(), 
+        this.cacheTimeout = {
+            ping: !isNaN(process.env.DB_cache_ping) ? Number(process.env.DB_cache_ping) : 60_000, // Delete the cache after X ms
+            get: !isNaN(process.env.DB_cache_get) ? Number(process.env.DB_cache_get) : 300_000, // Delete the cache after X ms 
+            all: !isNaN(process.env.DB_cache_all) ? Number(process.env.DB_cache_all) : 600_000, // Delete the cache after X ms
+        }
         Object.defineProperty(this, "__child__", {
             writable: !0,
             enumerable: !1,
@@ -85,18 +91,22 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             return res(!e || e.expireAt && e.expireAt.getTime() - Date.now() <= 0 ? null : e)
         })
     }
-    async get(key) {
+    async get(key, forceFetch = false) {
         var RawData = null;
-        if(this.cache.has(key)) RawData = this.cache.get(key);
-        else {
+        if(this.cache.has(key) && !forceFetch && (this.cacheTimeout.get <= 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)) > 0)){
+            RawData = this.cache.get(key);
+            // console.log(` :: Get :: ${key} :: From Cache :: LEFT TIMEOUT: ${Math.floor(this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)))}ms`);
+        } else {
+            // console.log(` :: Fetch :: ${key}`);
             RawData = await this.getRaw(key)
             this.cache.set(key, RawData); 
+            this.timeoutcache.set(key, Date.now()); 
         }
         let returnData = UtilClass.pick(this.__formatData(RawData), key);
         return returnData  // formattedData
     }
-    async fetch(key) {
-        return await this.get(key)
+    async fetch(key, forceFetch = true) {
+        return await this.get(key, forceFetch)
     }
     async set(t, e, n = -1) {
         if(this.cache.has(t)) this.cache.delete(t);
@@ -142,8 +152,8 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             }), await this.get(t)
         }
     }
-    async has(key) {
-        return await this.get(key) != null
+    async has(key, forceFetch = false) {
+        return await this.get(key, forceFetch) != null
     }
     async delete(t) {
         this.__readyCheck();
@@ -170,18 +180,22 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     }
     async deleteAll() {
         const deleted = await this.model.deleteMany();
+        // Clear the cache (delete all entries)
+        this.cache.clear();
         return deleted?.deletedCount > 0
     }
     async count() {
         return await this.model.estimatedDocumentCount()
     }
-    async ping() {
-        let t = Date.now(), pingkey = "SOMETHING_RANDOM_FOR_PING";
-        await this.get(pingkey)
-        if(this.cache.has(pingkey)) {
-            this.cache.delete(pingkey);
-        }
-        return Date.now() - t
+    async ping(forceFetch = false) {
+        const t = Date.now(), pingkey = `SOMETHING_RANDOM_FOR_PING`;
+        // if in the cache and out of the Delay then
+        if(this.cache.has(pingkey) && !forceFetch && (this.cacheTimeout.ping <= 0 || this.cacheTimeout.ping - (Date.now() - this.timeoutcache.get(pingkey)) > 0)) return this.cache.get(pingkey) 
+        else await this.get(pingkey, true)
+        const ping = Date.now() - t;
+        this.cache.set(pingkey, ping)
+        this.timeoutcache.set(pingkey, Date.now()); 
+        return ping
     }
     async instantiateChild(t, e) {
         return await new d(e || this.url, {
@@ -197,10 +211,11 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             construct: (t, e) => {
                 let n = e[0];
                 if (!n || typeof n != "string") throw new TypeError("ERR_TABLE_NAME");
-                let r = new DatabaseClass(this.url, this.options);
+                let r = new DatabaseClass(this.url, this.options, this.cacheTimeout);
                 return r.connection = this.connection, 
                 r.model = Indexer(this.connection, n), 
                 r.cache = new Map(),
+                r.timeoutcache = new Map(), 
                 r.connect = () => Promise.resolve(r), Object.defineProperty(r, "table", {
                     get() { },
                     set() { }
@@ -212,21 +227,25 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             }
         })
     }
-    async all(t) {
+    async all(t, forceFetch = false) {
         this.__readyCheck();
-        let n = (await this.model.find()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
-            ID: r.ID,
-            data: this.__formatData(r)
-        })).filter((r, o) => t?.filter ? t.filter(r, o) : !0);
-        if (typeof t?.sort == "string") {
-            t.sort.startsWith(".") && (t.sort = t.sort.slice(1));
-            let r = t.sort.split(".");
-            n = lodash.sortBy(n, r).reverse()
+        let returnData = null;
+        if(this.cache.has(t) && !forceFetch && (this.cacheTimeout.all <= 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(t)) > 0)) {
+            returnData = this.cache.get(t); // use the cache
+        } else {
+            let n = (await this.model.find()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
+                ID: r.ID,
+                data: this.__formatData(r)
+            })).filter((r, o) => t?.filter ? t.filter(r, o) : !0);
+            if (typeof t?.sort == "string") {
+                t.sort.startsWith(".") && (t.sort = t.sort.slice(1));
+                let r = t.sort.split(".");
+                n = lodash.sortBy(n, r).reverse()
+            }
+            returnData = typeof t?.limit == "number" && t.limit > 0 ? n.slice(0, t.limit) : n
+            this.cache.set(t, returnData); 
+            this.timeoutcache.set(t, Date.now()); 
         }
-        let returnData = typeof t?.limit == "number" && t.limit > 0 ? n.slice(0, t.limit) : n
-        
-        if(this.cache.has(t)) this.cache.set(t, returnData); 
-
         return returnData;
     }
     async drop() {
@@ -265,12 +284,16 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             this.__child__ = Boolean(this.options.child), this.parent = this.options.parent || null;
             let n = this.options.collectionName,
                 r = !!this.options.shareConnectionFromParent;
-            if (delete this.options.collectionName, delete this.options.child, delete this.options.parent, delete this.options.shareConnectionFromParent, r && this.__child__ && this.parent) return this.parent.connection ? (this.connection = this.parent.connection, this.model = Indexer(this.connection, UtilClass.v(n, "string", "JSON")), this.cache = new Map(), t(this)) : e(new Error("PARENT_HAS_NO_CONNECTION"));
+            if (delete this.options.collectionName, delete this.options.child, delete this.options.parent, delete this.options.shareConnectionFromParent, r && this.__child__ && this.parent) return this.parent.connection ? (this.connection = this.parent.connection, this.model = Indexer(this.connection, UtilClass.v(n, "string", "JSON")), 
+            this.cache = new Map(), 
+            this.timeoutcache = new Map(), 
+            t(this)) : e(new Error("PARENT_HAS_NO_CONNECTION"));
             mongoose.createConnection(this.url, this.options, async (o, l) => {
                 if (o) return e(o);
                 this.connection = l, 
                 this.model = Indexer(this.connection, UtilClass.v(n, "string", "JSON")), 
                 this.cache = new Map(),
+                this.timeoutcache = new Map(), 
                 this.emit("ready", this), this.__applyEventsBinding(), 
                 t(this);
             })
