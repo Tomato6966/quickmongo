@@ -93,13 +93,16 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     }
     async get(key, forceFetch = false) {
         var RawData = null;
-        if(this.cache.has(key) && !forceFetch && (this.cacheTimeout.get <= 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)) > 0)){
+        // | IF IN CACHE      |   AND NO FORCEFETCH  |   AND CACHE ENABLED    |  AND IT'S MAX DURATION is not REACHED YET
+        if(this.cache.has(key) && !forceFetch && this.cacheTimeout.get > -1 && (this.cacheTimeout.get == 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)) > 0)){
             RawData = this.cache.get(key);
             // console.log(` :: Get :: ${key} :: From Cache :: LEFT TIMEOUT: ${Math.floor(this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)))}ms`);
         } else {
             // console.log(` :: Fetch :: ${key}`);
             RawData = await this.getRaw(key)
+            // update the cache
             this.cache.set(key, RawData); 
+            // set value when it got set to the cache for the max Duration
             this.timeoutcache.set(key, Date.now()); 
         }
         let returnData = UtilClass.pick(this.__formatData(RawData), key);
@@ -109,7 +112,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         return await this.get(key, forceFetch)
     }
     async set(t, e, n = -1) {
-        if(this.cache.has(t)) this.cache.delete(t);
+        // if it's in the cache delete it, so that it can get updated on the next .get()
         if (this.__readyCheck(), t.includes(".")) {
             const r = UtilClass.getKeyMetadata(t);
             const o = await this.model.findOne({
@@ -135,7 +138,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 } : {
                     data: s
                 }
-            }), await this.get(r.master)
+            }), this.cache.delete(r.master), await this.get(r.master)
         } else {
             
             return await this.model.findOneAndUpdate({
@@ -149,7 +152,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 }
             }, {
                 upsert: !0
-            }), await this.get(t)
+            }), this.cache.delete(t), await this.get(t)
         }
     }
     async has(key, forceFetch = false) {
@@ -167,11 +170,10 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         if (!n) return !1;
         if (n.data !== null && typeof n.data != "object") throw new Error("CANNOT_TARGET_NON_OBJECT");
         let r = Object.assign({}, n.data);
+        // if it's in the cache, delete it
+        if(this.cache.has(t)) this.cache.delete(t);
+        if(this.cache.has(e.master)) this.cache.delete(e.master);
         
-        if(this.cache.has(t)) {
-            key == "748088208427974676" ? console.log(`${"DELETE".blue} Cache for ${String(t).green} in ${String(this.model.collection.name).green} [db.delete()]`.dim) : null
-            this.cache.delete(t);
-        }
         return lodash.unset(r, e.target), await n.updateOne({
             $set: {
                 data: r
@@ -189,13 +191,15 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     }
     async ping(forceFetch = false) {
         const t = Date.now(), pingkey = `SOMETHING_RANDOM_FOR_PING`;
-        // if in the cache and out of the Delay then
-        if(this.cache.has(pingkey) && !forceFetch && (this.cacheTimeout.ping <= 0 || this.cacheTimeout.ping - (Date.now() - this.timeoutcache.get(pingkey)) > 0)) return this.cache.get(pingkey) 
+        //    | IF IN CACHE        |   AND NO FORCEFETCH |   AND CACHE ENABLED   |  AND IT'S MAX DURATION is not REACHED YET
+        if(this.cache.has(pingkey) && !forceFetch && this.cacheTimeout.ping > -1 && (this.cacheTimeout.ping == 0 || this.cacheTimeout.ping - (Date.now() - this.timeoutcache.get(pingkey)) > 0)) return this.cache.get(pingkey)
         else await this.get(pingkey, true)
         const ping = Date.now() - t;
+        // update the cache
         this.cache.set(pingkey, ping)
+        // set value when it got set to the cache for the max Duration
         this.timeoutcache.set(pingkey, Date.now()); 
-        return ping
+        return ping;
     }
     async instantiateChild(t, e) {
         return await new d(e || this.url, {
@@ -230,7 +234,8 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     async all(t, forceFetch = false) {
         this.__readyCheck();
         let returnData = null;
-        if(this.cache.has(t) && !forceFetch && (this.cacheTimeout.all <= 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(t)) > 0)) {
+        // | IF IN CACHE     |  AND NO FORCEFETCH |   AND CACHE ENABLED   |  AND IT'S MAX DURATION is not REACHED YET
+        if(this.cache.has(t) && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(t)) > 0)) {
             returnData = this.cache.get(t); // use the cache
         } else {
             let n = (await this.model.find()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
@@ -243,7 +248,9 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 n = lodash.sortBy(n, r).reverse()
             }
             returnData = typeof t?.limit == "number" && t.limit > 0 ? n.slice(0, t.limit) : n
+            // update the cache
             this.cache.set(t, returnData); 
+            // set value when it got set to the cache for the max Duration
             this.timeoutcache.set(t, Date.now()); 
         }
         return returnData;
