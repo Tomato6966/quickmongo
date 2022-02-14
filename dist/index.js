@@ -96,9 +96,9 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         // | IF IN CACHE      |   AND NO FORCEFETCH  |   AND CACHE ENABLED    |  AND IT'S MAX DURATION is not REACHED YET
         if(this.cache.has(key) && !forceFetch && this.cacheTimeout.get > -1 && (this.cacheTimeout.get == 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)) > 0)){
             RawData = this.cache.get(key);
-            // console.log(` :: Get :: ${key} :: From Cache :: LEFT TIMEOUT: ${Math.floor(this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)))}ms`);
+            //console.log(` :: Get :: ${key} :: From Cache :: LEFT TIMEOUT: ${Math.floor(this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)))}ms`);
         } else {
-            // console.log(` :: Fetch :: ${key}`);
+            //console.log(` :: Fetch :: ${key}`);
             RawData = await this.getRaw(key)
             // update the cache
             this.cache.set(key, RawData); 
@@ -141,6 +141,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             }), 
             this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`), 
             this.cache.delete(r.master), 
+            this.cache.delete(t), 
             await this.get(r.master)
         } else {
             return await this.model.findOneAndUpdate({
