@@ -138,10 +138,18 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 } : {
                     data: s
                 }
+            }).catch(err => {
+                console.log(this.model.collection.name);
+                console.log(s);
+                console.error(err);
             }), 
+            // r = Util.getKeyMetadata("123.abc.ABC") = { master: '123', child: [ 'abc', 'ABC' ], target: 'abc.ABC' }
             this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`), 
-            this.cache.delete(r.master), 
-            this.cache.delete(t), 
+            this.cache.delete(`${r.master}`), //123
+            this.cache.delete(`${r.master}.${r.child[0]}`), //123.abc
+            this.cache.delete(`${r.child[0]}`), // abc
+            this.cache.delete(`${r.target}`), // abc.ABC
+            this.cache.delete(t), // wholekey 
             await this.get(r.master)
         } else {
             return await this.model.findOneAndUpdate({
@@ -177,14 +185,22 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         if (n.data !== null && typeof n.data != "object") throw new Error("CANNOT_TARGET_NON_OBJECT");
         let r = Object.assign({}, n.data);
         // if it's in the cache, delete it
-        this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`), 
-        this.cache.delete(t);
-        this.cache.delete(e.master);
+        // e = Util.getKeyMetadata("123.abc.ABC") = { master: '123', child: [ 'abc', 'ABC' ], target: 'abc.ABC' }
+        this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`); 
+        this.cache.delete(`${e.master}`); //123
+        this.cache.delete(`${e.master}.${e.child[0]}`); //123.abc
+        this.cache.delete(`${e.child[0]}`); // abc
+        this.cache.delete(`${e.target}`); // abc.ABC
+        this.cache.delete(t); // wholekey 
         
         return lodash.unset(r, e.target), await n.updateOne({
             $set: {
                 data: r
             }
+        }).catch(err => {
+            console.log(this.model.collection.name);
+            console.log(r);
+            console.error(err);
         }), !0
     }
     async deleteAll() {
