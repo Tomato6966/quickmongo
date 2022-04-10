@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Tinyfy = require("tiny-typed-emitter");
 const lodash = require("lodash");
+const fs = require("fs");
 
 const StandardSchema = new mongoose.Schema({
     ID: {
@@ -93,19 +94,20 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     }
     async get(key, forceFetch = false) {
         var RawData = null;
+        let returnData = null;
         // | IF IN CACHE      |   AND NO FORCEFETCH  |   AND CACHE ENABLED    |  AND IT'S MAX DURATION is not REACHED YET
         if(this.cache.has(key) && !forceFetch && this.cacheTimeout.get > -1 && (this.cacheTimeout.get == 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)) > 0)){
-            RawData = this.cache.get(key);
-            //console.log(` :: Get :: ${key} :: From Cache :: LEFT TIMEOUT: ${Math.floor(this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)))}ms`);
+            returnData = this.cache.get(key);
+            //if(key.includes("940221247218909244")) console.log(` :: Get :: ${key} :: From Cache :: LEFT TIMEOUT: ${Math.floor(this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)))}ms`);
         } else {
-            //console.log(` :: Fetch :: ${key}`);
+            //if(key.includes("940221247218909244")) console.log(` :: Fetch :: ${key}`);
             RawData = await this.getRaw(key)
+            returnData = UtilClass.pick(this.__formatData(RawData), key);
             // update the cache
-            this.cache.set(key, RawData); 
+            this.cache.set(key, returnData); 
             // set value when it got set to the cache for the max Duration
             this.timeoutcache.set(key, Date.now()); 
         }
-        let returnData = UtilClass.pick(this.__formatData(RawData), key);
         return returnData  // formattedData
     }
     async fetch(key, forceFetch = true) {
@@ -113,25 +115,33 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     }
     async set(t, e, n = -1) {
         // if it's in the cache delete it, so that it can get updated on the next .get()
-        if (this.__readyCheck(), t.includes(".")) {
+        if (this.__readyCheck() && t.includes(".")) {
             const r = UtilClass.getKeyMetadata(t);
             const o = await this.model.findOne({
                 ID: r.master
             })
+            // if it is not existing, create a new modl and return
             if (!o) {
-                return await this.model.create(UtilClass.shouldExpire(n) ? {
+                if(t.includes("940221247218909244")) console.log("NO O")
+                await this.model.create(UtilClass.shouldExpire(n) ? {
                     ID: r.master,
                     data: lodash.set({}, r.target, e),
                     expireAt: UtilClass.createDuration(n * 1e3)
                 } : {
                     ID: r.master,
                     data: lodash.set({}, r.target, e)
-                }), await this.get(t);
+                }).catch(err => {
+                    console.error(this.model.collection.name);
+                    console.error(err);
+                });
+                return await this.get(t, true);
             }
+            // if no correct data, return error
             if (o.data !== null && typeof o.data != "object") throw new Error("CANNOT_TARGET_NON_OBJECT");
             const l = Object.assign({}, o.data);
             const s = lodash.set(l, r.target, e);
-            return await o.updateOne({
+            // update the class and return it eventually
+            await o.updateOne({
                 $set: UtilClass.shouldExpire(n) ? {
                     data: s,
                     expireAt: UtilClass.createDuration(n * 1e3)
@@ -139,20 +149,23 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                     data: s
                 }
             }).catch(err => {
-                console.log(this.model.collection.name);
-                console.log(s);
+                console.error(this.model.collection.name);
                 console.error(err);
-            }), 
+            });
+            
             // r = Util.getKeyMetadata("123.abc.ABC") = { master: '123', child: [ 'abc', 'ABC' ], target: 'abc.ABC' }
-            this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`), 
-            this.cache.delete(`${r.master}`), //123
-            this.cache.delete(`${r.master}.${r.child[0]}`), //123.abc
-            this.cache.delete(`${r.child[0]}`), // abc
-            this.cache.delete(`${r.target}`), // abc.ABC
-            this.cache.delete(t), // wholekey 
-            await this.get(r.master)
-        } else {
-            return await this.model.findOneAndUpdate({
+            this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`);
+            this.cache.delete(`${r.master}`); //123
+            this.cache.delete(`${r.master}.${r.child[0]}`); //123.abc
+            this.cache.delete(`${r.child[0]}`); // abc
+            this.cache.delete(`${r.target}`); // abc.ABC
+            this.cache.delete(`${t}`); // wholekey 
+            
+            return await this.get(r.master, true)
+        } 
+        // if its a non object based key
+        else {
+            await this.model.findOneAndUpdate({
                 ID: t
             }, {
                 $set: UtilClass.shouldExpire(n) ? {
@@ -163,14 +176,27 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 }
             }, {
                 upsert: !0
-            }), 
-            this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`), 
-            this.cache.delete(t),
-            await this.get(t)
+            }).catch(err => {
+                console.error(this.model.collection.name);
+                console.error(err);
+            });
+            
+            // delete the cahce
+            this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`); 
+            this.cache.delete(t);
+            return await this.get(t)
         }
     }
     async has(key, forceFetch = false) {
         return await this.get(key, forceFetch) != null
+    }
+    async ensure(key, defaultObject, path = null) {
+        this.__readyCheck();
+        if(_.isNil(defaultObject)) {
+            throw new Error(`No default value for for "${key}"`)
+        }
+        // not finished yet
+        return true;
     }
     async delete(t) {
         this.__readyCheck();
@@ -193,15 +219,16 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         this.cache.delete(`${e.target}`); // abc.ABC
         this.cache.delete(t); // wholekey 
         
-        return lodash.unset(r, e.target), await n.updateOne({
+        lodash.unset(r, e.target);
+        await n.updateOne({
             $set: {
                 data: r
             }
         }).catch(err => {
-            console.log(this.model.collection.name);
-            console.log(r);
+            console.error(this.model.collection.name);
             console.error(err);
-        }), !0
+        });
+        return !0
     }
     async deleteAll() {
         const deleted = await this.model.deleteMany();
@@ -259,7 +286,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         let returnData = null;
         let keyForAll = `ALLDATABASE_${this.model.collection.name}_ALLDATABASE`;
         // | IF IN CACHE     |  AND NO FORCEFETCH |   AND CACHE ENABLED   |  AND IT'S MAX DURATION is not REACHED YET
-        if(this.cache.has(keyForAll) && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(keyForAll)) > 0)) {
+        if(this.cache.get(keyForAll) && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(keyForAll)) > 0)) {
             returnData = this.cache.get(keyForAll); // use the cache
         } else {
             let n = (await this.model.find()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
@@ -282,8 +309,8 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     async drop() {
         return this.__readyCheck(), await this.model.collection.drop()
     }
-    async push(t, e) {
-        let n = await this.get(t);
+    async push(t, e, forceFetch = true) {
+        let n = await this.get(t, forceFetch);
         if (n == null) return Array.isArray(e) ? await this.set(t, e) : await this.set(t, [e]);
         if (!Array.isArray(n)) throw new Error("TARGET_EXPECTED_ARRAY");
         return Array.isArray(e) ? await this.set(t, n.concat(e)) : (n.push(e), await this.set(t, n)) 
@@ -351,12 +378,16 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         })
     }
     __formatData(t) {
-        return t?.data ? t.data : null
+        if(t && t.data) return t.data
+        else return null;
+        
     }
     __readyCheck() {
         if (!this.model) throw new Error("DATABASE_NOT_READY")
+        else return true;
     }
 };
+
 
 function Indexer(i, t = "JSON") {
     let e = i.model(t, StandardSchema);
