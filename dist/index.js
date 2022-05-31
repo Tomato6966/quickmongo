@@ -179,7 +179,6 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 console.error("GET DB KEY NOT EXISTING IN CACHE")
                 return RawData
             }
-            console.log("Get - Response from Redis\n\n")
             // Return the picked Data
             return UtilClass.pick(RawData, key);
         } else {
@@ -190,7 +189,6 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 return this.__formatData(RawData)
             }
             
-            console.log("Get - FETCH from Mongodb\n\n")
             // Update the PING
             const ping = Date.now() - t_Ping;
             await this.cache.set(this.pingkey, this.formatCache(ping));
@@ -236,7 +234,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             } else {
                 await this.cache.set(key, this.formatCache(data));
                 this.timeoutcache.set(key, Date.now()); 
-                if(typeof data != "object" && !Array.isArray(data)) return console.log("ALL DATA but not an ARRAY?");
+                if(typeof data != "object" && !Array.isArray(data)) return console.error("ALL DATA but not an ARRAY?");
                 
                 // Set cache of all subvalues
                 for(const d of data) {
@@ -244,7 +242,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                     this.timeoutcache.set(`${d.ID}`, Date.now()); 
                     continue;
                 }
-                return 
+                return true;
             }
         }
         return true;
@@ -489,7 +487,6 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         const cacheValue = await this.cache.get(this.keyForAll);
         if (cacheValue && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(this.keyForAll)) > 0)) {
             const CacheResult = this.parseCache(cacheValue);
-            console.log("ALL - Response from Redis\n\n")
             return typeof t?.limit == "number" && t.limit > 0 ? CacheResult.slice(0, t.limit) : CacheResult;
         } else {
             let n = (await this.model.find().lean()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
@@ -502,7 +499,6 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 let r = t.sort.split(".");
                 n = lodash.sortBy(n, r).reverse()
             }
-            console.log("ALL - FETCH from Mongodb\n\n")
             return await this.updateCache(this.keyForAll, n, true), typeof t?.limit == "number" && t.limit > 0 ? n.slice(0, t.limit) : n;
         }
         
