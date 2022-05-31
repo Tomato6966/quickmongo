@@ -75,6 +75,7 @@
   "dependencies": {
     "lodash": "^4.17.21",
     "mongoose": "^6.0.13",
+    "redis": "^4.1.0",
     "tiny-typed-emitter": "^2.1.0"
   }
 }
