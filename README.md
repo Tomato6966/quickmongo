@@ -25,14 +25,14 @@ to install it: `npm install https://github.com/Tomato6966/quickmongo`
 - Mongodb: `mongodb://<username>:<password>@<hostname/Ip>:<Port>/<DatabaseName>`
   - `mongodb://tomato:quickmongo@127.0.0.1:27017/admin`
   -  Defaults: 
-    -  IP: `127.0.0.1` | aka: `localhost`
-    -  Port: `27017`
+     -  IP: `127.0.0.1` | aka: `localhost`
+     -  Port: `27017`
  
 - Redis: `redis://<hostname/Ip>:<port>`
   - `redis://127.0.0.1:6379`
   -  Defaults: 
-    -  IP: `127.0.0.1` | aka: `localhost`
-    -  Port: `6379`
+     -  IP: `127.0.0.1` | aka: `localhost`
+     -  Port: `6379`
  
 > If you want to connect to a redis Server remotly, change the following in the `/etc/redis/redis.conf` (Redis configuration File):
 > `bind 127.0.0.1` --> `bind 127.0.0.1 <your_public_ipv4>` // Make sure there is no `#` infront of it
