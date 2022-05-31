@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 const Tinyfy = require("tiny-typed-emitter");
 const lodash = require("lodash");
 const fs = require("fs");
-
+const redis = require("redis");
+const util = require("util");
 const StandardSchema = new mongoose.Schema({
     ID: {
         type: mongoose.SchemaTypes.String,
@@ -49,6 +50,44 @@ const UtilClass = class extends null {
     static createDuration(t) {
         return UtilClass.shouldExpire(t) ? new Date(Date.now() + t) : null
     }
+    
+    static checkObjectDeep(dd, data) {
+        let changed = false;
+        // Layer 1
+        for (const [Okey_1, value_1] of Object.entries(data)) {
+          if(!dd[Okey_1] && dd[Okey_1] === undefined) {
+            dd[Okey_1] = value_1; changed = true;
+          } else if(value_1 && typeof value_1 == "object") {
+            // Layer 2
+            for (const [Okey_2, value_2] of Object.entries(value_1)) {
+              if(!dd[Okey_1][Okey_2] && dd[Okey_1][Okey_2] === undefined) {
+                dd[Okey_1][Okey_2] = value_2; changed = true;
+              } else if(value_2 && typeof value_2 == "object")  {
+                // Layer 3
+                for (const [Okey_3, value_3] of Object.entries(value_2)) {
+                  if(!dd[Okey_1][Okey_2][Okey_3] && dd[Okey_1][Okey_2][Okey_3] === undefined) {
+                    dd[Okey_1][Okey_2][Okey_3] = value_3; changed = true;
+                  } else if(value_3 === "object") {
+                    // Layer 4
+                    for (const [Okey_4, value_4] of Object.entries(value_3)) {
+                      if(!dd[Okey_1][Okey_2][Okey_3][Okey_4] && dd[Okey_1][Okey_2][Okey_3][Okey_4] === undefined) {
+                        dd[Okey_1][Okey_2][Okey_3][Okey_4] = value_4; changed = true;
+                      } else if(value_4 === "object") {
+                        continue;
+                      } else continue; 
+                    }
+                    // End of layer 4
+                  } else continue; 
+                }
+                // End of layer 3
+              } else continue;
+            }
+            // End of layer 2
+          } else continue;
+        }
+        if(changed) return dd;
+        else return false;
+    }
 };
 const DatabaseClass = class extends Tinyfy.TypedEmitter {
     constructor(t, e = {}) {
@@ -58,7 +97,12 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         this.parent = null;
         this.__child__ = !1;
         this.model = null;
-        this.cache = new Map(),
+        this.cache = new Map();
+        this.redisCache = false;
+        this.pingkey = "SOMETHING_RANDOM_FOR_PING"
+        
+        this.keyForAll = `ALLDATABASE_${this.model?.collection?.name || "DB"}_ALLDATABASE`;
+
         this.timeoutcache = new Map(), 
         this.cacheTimeout = {
             ping: !isNaN(process.env.DB_cache_ping) ? Number(process.env.DB_cache_ping) : 60_000, // Delete the cache after X ms
@@ -71,18 +115,48 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             configurable: !0
         })
     }
+
+    // UTILS for the CACHE
+    formatCache(data) {
+        return this.redisCache ? JSON.stringify(data) : data
+    }
+    parseCache(data) {
+        return this.redisCache ? JSON.parse(data) : data
+    }
+    // CACHE - USE REDIS
+    async connectToRedis(RedisSettings) {
+        return new Promise(async res => {
+            // REDIS
+            const redisClient = redis.createClient(RedisSettings);
+    
+            redisClient.on('error', (err) => console.log('Redis Client Error', err));
+            redisClient.on('connect', () => console.log('Redis Client connected'));
+            redisClient.on('ready', async () => {
+                console.log('Redis Client ready')
+
+                this.cache = redisClient;
+                this.redisCache = true
+                return res(redisClient);
+            });
+            redisClient.connect();
+        })
+    }
+
     isChild() {
         return !this.isParent()
     }
     isParent() {
         return !this.__child__
     }
+
     get ready() {
         return !!(this.model && this.connection)
     }
     get readyState() {
         return this.connection?.readyState ?? 0
     }
+
+    // Fetch from MONGODB
     async getRaw(key) {
         return new Promise(async (res) => {
             this.__readyCheck();
@@ -92,27 +166,91 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             return res(!e || e.expireAt && e.expireAt.getTime() - Date.now() <= 0 ? null : e)
         })
     }
+
+    // CACHE + FETCH FROM MONGODB
     async get(key, forceFetch = false) {
-        var RawData = null;
-        let returnData = null;
-        // | IF IN CACHE      |   AND NO FORCEFETCH  |   AND CACHE ENABLED    |  AND IT'S MAX DURATION is not REACHED YET
-        if(this.cache.has(key) && !forceFetch && this.cacheTimeout.get > -1 && (this.cacheTimeout.get == 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)) > 0)){
-            returnData = this.cache.get(key);
-            //if(key.includes("940221247218909244")) console.log(` :: Get :: ${key} :: From Cache :: LEFT TIMEOUT: ${Math.floor(this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(key)))}ms`);
+        let t_Ping = Date.now();
+        const Master = UtilClass.getKey(key);
+        const cacheValue = await this.cache.get(Master);
+        
+        if (cacheValue && !forceFetch && this.cacheTimeout.get > -1 && (this.cacheTimeout.get == 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(Master)) > 0)) {
+            const RawData = this.parseCache(cacheValue)
+            if(!RawData || RawData === null) {
+                console.error("GET DB KEY NOT EXISTING IN CACHE")
+                return RawData
+            }
+            console.log("Get - Response from Redis\n\n")
+            // Return the picked Data
+            return UtilClass.pick(RawData, key);
         } else {
-            //if(key.includes("940221247218909244")) console.log(` :: Fetch :: ${key}`);
-            RawData = await this.getRaw(key)
-            returnData = UtilClass.pick(this.__formatData(RawData), key);
-            // update the cache
-            this.cache.set(key, returnData); 
-            // set value when it got set to the cache for the max Duration
-            this.timeoutcache.set(key, Date.now()); 
+            const RawData = await this.getRaw(Master)
+
+            if(RawData === null || !this.__formatData(RawData)) {
+                console.error("GET DB KEY NOT EXISTING")
+                return this.__formatData(RawData)
+            }
+            
+            console.log("Get - FETCH from Mongodb\n\n")
+            // Update the PING
+            const ping = Date.now() - t_Ping;
+            await this.cache.set(this.pingkey, this.formatCache(ping));
+            this.timeoutcache.set(this.pingkey, Date.now()); 
+
+            // Return the picked Data
+            return await this.updateCache(Master, this.__formatData(RawData)), UtilClass.pick(this.__formatData(RawData), key);
         }
-        return returnData  // formattedData
     }
+
+    // fetch from the DB (alias of get method, but with forcefetch enabled on default)
     async fetch(key, forceFetch = true) {
         return await this.get(key, forceFetch)
     }
+    
+    // Update the Cache 
+    async updateCache(key, data, allDatabaseUpdate = false) {
+        if(key.includes(".")) {
+            console.error("updateCache :: provided key with '.'");
+        } else {
+            if(!allDatabaseUpdate) {
+                // Update the TOTAL DATABASE
+                const allCachedDB = await this.cache.get(this.keyForAll); 
+                if(allCachedDB) {
+                    // lodash.set(Data, r.target, e)
+                    const parsedData = this.parseCache(allCachedDB);
+                    if(typeof parsedData == "object" && Array.isArray(parsedData)) {
+                        const allDataPath = { ID: key, data: data };
+                        const specificData = parsedData.find(d => d.ID == key);
+                        const specificIndex = parsedData.findIndex(d => d.ID == key);
+                        if(specificData && specificIndex > -1) {
+                            parsedData[Number(specificIndex)] = allDataPath
+                        } else {
+                            parsedData.push(allDataPath);
+                        }
+                    }
+                    await this.cache.set(this.keyForAll, this.formatCache(parsedData)); 
+                }
+                // Update the sub key caches
+                await this.cache.set(key, this.formatCache(data));
+                this.timeoutcache.set(key, Date.now()); 
+                return true;
+            } else {
+                await this.cache.set(key, this.formatCache(data));
+                this.timeoutcache.set(key, Date.now()); 
+                if(typeof data != "object" && !Array.isArray(data)) return console.log("ALL DATA but not an ARRAY?");
+                
+                // Set cache of all subvalues
+                for(const d of data) {
+                    await this.cache.set(`${d.ID}`, this.formatCache(d.data))
+                    this.timeoutcache.set(`${d.ID}`, Date.now()); 
+                    continue;
+                }
+                return 
+            }
+        }
+        return true;
+    }
+
+    // Change the DB and the CACHE 
     async set(t, e, n = -1) {
         // if it's in the cache delete it, so that it can get updated on the next .get()
         if (this.__readyCheck() && t.includes(".")) {
@@ -122,19 +260,20 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             })
             // if it is not existing, create a new modl and return
             if (!o) {
-                if(t.includes("940221247218909244")) console.log("NO O")
+                const setData = lodash.set({}, r.target, e);
                 await this.model.create(UtilClass.shouldExpire(n) ? {
                     ID: r.master,
-                    data: lodash.set({}, r.target, e),
+                    data: setData,
                     expireAt: UtilClass.createDuration(n * 1e3)
                 } : {
                     ID: r.master,
-                    data: lodash.set({}, r.target, e)
+                    data: setData
                 }).catch(err => {
                     console.error(this.model.collection.name);
                     console.error(err);
                 });
-                return await this.get(t, true);
+
+                return await this.updateCache(r.master, setData), await this.get(t);
             }
             // if no correct data, return error
             if (o.data !== null && typeof o.data != "object") throw new Error("CANNOT_TARGET_NON_OBJECT");
@@ -154,14 +293,8 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             });
             
             // r = Util.getKeyMetadata("123.abc.ABC") = { master: '123', child: [ 'abc', 'ABC' ], target: 'abc.ABC' }
-            this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`);
-            this.cache.delete(`${r.master}`); //123
-            this.cache.delete(`${r.master}.${r.child[0]}`); //123.abc
-            this.cache.delete(`${r.child[0]}`); // abc
-            this.cache.delete(`${r.target}`); // abc.ABC
-            this.cache.delete(`${t}`); // wholekey 
             
-            return await this.get(r.master, true)
+            return await this.updateCache(r.master, s), await this.get(r.master)
         } 
         // if its a non object based key
         else {
@@ -181,134 +314,204 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 console.error(err);
             });
             
-            // delete the cahce
-            this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`); 
-            this.cache.delete(t);
-            return await this.get(t)
+            return await this.updateCache(t, e), await this.get(t)
         }
     }
+
+    // Check if there is data in the db
     async has(key, forceFetch = false) {
         return await this.get(key, forceFetch) != null
     }
-    async ensure(key, defaultObject, path = null) {
+
+    // Make sure that there is specific data in the db (works with key and key.subkey.subsubkey....)
+    async ensure(key, defaultObject) {
         this.__readyCheck();
         if(_.isNil(defaultObject)) {
             throw new Error(`No default value for for "${key}"`)
         }
-        // not finished yet
-        return true;
+        
+        const newData = lodash.clone(defaultObject);
+        const r = UtilClass.getKeyMetadata(key);
+
+        // get the current master data if 
+        const dbData = await this.get(r.master) || {};
+        // if there is a target, check for the target
+        if(r.target) {
+            if(lodash.has(dbData, r.target)) {
+                const pathData = lodash.get(newData, r.target)
+                const newPathData = UtilClass.checkObjectDeep(pathData, data);
+                // something has changed
+                if(newPathData) {
+                    lodash.set(newData, path, newPathData);
+                    await db.set(r.master, newData);
+                    return res({ changed: true });
+                }
+                return res({ changed: false }); 
+            }
+            // if it's not in the dbData, then set it
+            lodash.set(dbData, r.target, newData)
+            await db.set(r.master, dbData);
+            return res({ changed: true });
+        }
+        // check for non-targets object changes
+        const newPathData = UtilClass.checkObjectDeep(newData, data);
+        // something has changed
+        if(newPathData) {
+            Object.assign(newData, newPathData);
+            await db.set(r.master, newData);
+            return res({ changed: true });
+        } 
+        // return something
+        return res({ changed: false }); 
     }
+    
+    // Delete properties from the Object and from the Cache
     async delete(t) {
         this.__readyCheck();
-        let e = UtilClass.getKeyMetadata(t);
-        if (!e.target) return (await this.model.deleteOne({
-            ID: e.master
-        })).deletedCount > 0;
-        let n = await this.model.findOne({
-            ID: e.master
+        let Key = UtilClass.getKeyMetadata(t);
+
+        if (!Key.target) {
+            // remove from the CACHE
+            this.redisCache ? await this.cache.sendCommand(['DEL', Key.master]) : this.cache.delete(Key.master)
+
+            // remove from the DB
+            return (await this.model.deleteOne({
+                ID: Key.master
+            })).deletedCount > 0;
+        }
+        let Document = await this.model.findOne({
+            ID: Key.master
         })
-        if (!n) return !1;
-        if (n.data !== null && typeof n.data != "object") throw new Error("CANNOT_TARGET_NON_OBJECT");
-        let r = Object.assign({}, n.data);
-        // if it's in the cache, delete it
-        // e = Util.getKeyMetadata("123.abc.ABC") = { master: '123', child: [ 'abc', 'ABC' ], target: 'abc.ABC' }
-        this.cache.delete(`ALLDATABASE_${this.model.collection.name}_ALLDATABASE`); 
-        this.cache.delete(`${e.master}`); //123
-        this.cache.delete(`${e.master}.${e.child[0]}`); //123.abc
-        this.cache.delete(`${e.child[0]}`); // abc
-        this.cache.delete(`${e.target}`); // abc.ABC
-        this.cache.delete(t); // wholekey 
-        
-        lodash.unset(r, e.target);
-        await n.updateOne({
+        if (!Document) return !1;
+        if (Document.data !== null && typeof Document.data != "object") throw new Error("CANNOT_TARGET_NON_OBJECT");
+        // Create an object
+        let formattedData = Object.assign({}, Document.data);
+        // remove the target from the object
+        lodash.unset(formattedData, Key.target);
+        // Save the new Cache (just a key of the object got removed that's why)
+        this.redisCache ? await this.cache.set(Key.master, formattedData) : this.cache.set(Key.master);
+        // Update the DB with the removed object
+        await Document.updateOne({
             $set: {
-                data: r
+                data: formattedData
             }
         }).catch(err => {
             console.error(this.model.collection.name);
             console.error(err);
         });
+
         return !0
     }
+
+    // deleteAll Docs in the mongodb
     async deleteAll() {
+        // Clear the cache
+        this.redisCache ? await this.cache.sendCommand(['FLUSHALL']) : this.cache.clear();
+        // Clear the DB
         const deleted = await this.model.deleteMany();
-        // Clear the cache (delete all entries)
-        this.cache.clear();
+        // Show value
         return deleted?.deletedCount > 0
     }
-    async count() {
+
+    // Mongodb Collection Size [Default is forceFetching aka not getting from cache]
+    async count(forceFetch = true) {
+        if(forceFetch) return await this.model.estimatedDocumentCount()
+
+        const cacheValue = await this.cache.get(this.keyForAll);
+        if(cacheValue) {
+            return this.parseCache(cacheValue).length;
+        }
+        
         return await this.model.estimatedDocumentCount()
     }
+
+    // ping the db by fetching data + save it in the cache
     async ping(forceFetch = false) {
-        const t = Date.now(), pingkey = `SOMETHING_RANDOM_FOR_PING`;
-        //    | IF IN CACHE        |   AND NO FORCEFETCH |   AND CACHE ENABLED   |  AND IT'S MAX DURATION is not REACHED YET
-        if(this.cache.has(pingkey) && !forceFetch && this.cacheTimeout.ping > -1 && (this.cacheTimeout.ping == 0 || this.cacheTimeout.ping - (Date.now() - this.timeoutcache.get(pingkey)) > 0)) return this.cache.get(pingkey)
-        else await this.get(pingkey, true)
-        const ping = Date.now() - t;
-        // update the cache
-        this.cache.set(pingkey, ping)
-        // set value when it got set to the cache for the max Duration
-        this.timeoutcache.set(pingkey, Date.now()); 
-        return ping;
+        const t_Ping = Date.now();
+        const cacheValue = await this.cache.get(this.pingkey);
+        
+        if (cacheValue && !forceFetch && this.cacheTimeout.ping > -1 && (this.cacheTimeout.ping == 0 || this.cacheTimeout.ping - (Date.now() - this.timeoutcache.get(this.pingkey)) > 0)) {
+            return this.parseCache(cacheValue)
+        } else {
+            await this.get(this.pingkey, true)
+            const ping = Date.now() - t_Ping;
+            await this.cache.set(this.pingkey, this.formatCache(ping));
+            this.timeoutcache.set(this.pingkey, Date.now()); 
+            return ping;
+        }
     }
+
+    // create a child instance with the same options
     async instantiateChild(t, e) {
         return await new d(e || this.url, {
             ...this.options,
             child: !0,
             parent: this,
+            cache: this.redisCache ? this.cache : new Map(),
+            redisCache: this.redisCache,
+            keyForAll: `ALLDATABASE_${t || "DB"}_ALLDATABASE`,
             collectionName: t,
             shareConnectionFromParent: !!e || !0
         }).connect()
     }
+
+    // Create a table aka Collection
     get table() {
         return new Proxy(function () { }, {
             construct: (t, e) => {
                 let n = e[0];
                 if (!n || typeof n != "string") throw new TypeError("ERR_TABLE_NAME");
                 let r = new DatabaseClass(this.url, this.options, this.cacheTimeout);
-                return r.connection = this.connection, 
-                r.model = Indexer(this.connection, n), 
-                r.cache = new Map(),
-                r.timeoutcache = new Map(), 
-                r.connect = () => Promise.resolve(r), Object.defineProperty(r, "table", {
+                if(this.redisCache) {
+                    r.redisCache = this.redisCache;
+                    r.cache = this.cache;
+                }
+                r.connection = this.connection;
+                r.model = Indexer(this.connection, n);
+                r.keyForAll = `ALLDATABASE_${r.model?.collection?.name || "DB"}_ALLDATABASE`
+                
+                return r.connect = () => Promise.resolve(r), Object.defineProperty(r, "table", {
                     get() { },
                     set() { }
-                }), 
-                r;
+                }), r;
             },
             apply: () => {
                 throw new Error("TABLE_IS_NOT_A_FUNCTION")
             }
         })
     }
+
+    // Fetch complete Mongodb + Set the Cache
     async all(t, forceFetch = false) {
         this.__readyCheck();
-        let returnData = null;
-        let keyForAll = `ALLDATABASE_${this.model.collection.name}_ALLDATABASE`;
-        // | IF IN CACHE     |  AND NO FORCEFETCH |   AND CACHE ENABLED   |  AND IT'S MAX DURATION is not REACHED YET
-        if(this.cache.get(keyForAll) && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(keyForAll)) > 0)) {
-            returnData = this.cache.get(keyForAll); // use the cache
+        
+        // await this.cache.set(keyForAll, JSON.stringify(false));
+        const cacheValue = await this.cache.get(this.keyForAll);
+        if (cacheValue && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(this.keyForAll)) > 0)) {
+            const CacheResult = this.parseCache(cacheValue);
+            console.log("ALL - Response from Redis\n\n")
+            return typeof t?.limit == "number" && t.limit > 0 ? CacheResult.slice(0, t.limit) : CacheResult;
         } else {
-            let n = (await this.model.find()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
+            let n = (await this.model.find().lean()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
                 ID: r.ID,
                 data: this.__formatData(r)
             })).filter((r, o) => t?.filter ? t.filter(r, o) : !0);
+            
             if (typeof t?.sort == "string") {
                 t.sort.startsWith(".") && (t.sort = t.sort.slice(1));
                 let r = t.sort.split(".");
                 n = lodash.sortBy(n, r).reverse()
             }
-            returnData = typeof t?.limit == "number" && t.limit > 0 ? n.slice(0, t.limit) : n
-            // update the cache
-            this.cache.set(keyForAll, returnData); 
-            // set value when it got set to the cache for the max Duration
-            this.timeoutcache.set(keyForAll, Date.now()); 
+            console.log("ALL - FETCH from Mongodb\n\n")
+            return await this.updateCache(this.keyForAll, n, true), typeof t?.limit == "number" && t.limit > 0 ? n.slice(0, t.limit) : n;
         }
-        return returnData;
+        
     }
+
     async drop() {
         return this.__readyCheck(), await this.model.collection.drop()
     }
+
     async push(t, e, forceFetch = true) {
         let n = await this.get(t, forceFetch);
         if (n == null) return Array.isArray(e) ? await this.set(t, e) : await this.set(t, [e]);
@@ -336,6 +539,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         let n = await this.get(t);
         return await this.set(t, (typeof n == "number" ? n : 0) - e)
     }
+
     connect() {
         return new Promise((t, e) => {
             if (typeof this.url != "string" || !this.url) return e(new Error("MISSING_MONGODB_URL"));
@@ -343,20 +547,17 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             let n = this.options.collectionName,
                 r = !!this.options.shareConnectionFromParent;
             if (delete this.options.collectionName, delete this.options.child, delete this.options.parent, delete this.options.shareConnectionFromParent, r && this.__child__ && this.parent) return this.parent.connection ? (this.connection = this.parent.connection, this.model = Indexer(this.connection, UtilClass.v(n, "string", "JSON")), 
-            this.cache = new Map(), 
-            this.timeoutcache = new Map(), 
             t(this)) : e(new Error("PARENT_HAS_NO_CONNECTION"));
             mongoose.createConnection(this.url, this.options, async (o, l) => {
                 if (o) return e(o);
                 this.connection = l, 
                 this.model = Indexer(this.connection, UtilClass.v(n, "string", "JSON")), 
-                this.cache = new Map(),
-                this.timeoutcache = new Map(), 
                 this.emit("ready", this), this.__applyEventsBinding(), 
                 t(this);
             })
         })
     }
+
     get metadata() {
         return this.model ? {
             name: this.model.collection.name,
@@ -364,12 +565,15 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             namespace: this.model.collection.namespace
         } : null
     }
+
     async stats() {
         return this.__readyCheck(), await this.model.collection.stats()
     }
+
     async close(t = !1) {
         return await this.connection.close(t)
     }
+
     __applyEventsBinding() {
         this.__readyCheck();
         let t = ["connecting", "connected", "open", "disconnecting", "disconnected", "close", "reconnected", "error", "fullsetup", "all", "reconnectFailed", "reconnectTries"];
@@ -377,11 +581,13 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             this.emit(e, ...n)
         })
     }
+
     __formatData(t) {
         if(t && t.data) return t.data
         else return null;
         
     }
+
     __readyCheck() {
         if (!this.model) throw new Error("DATABASE_NOT_READY")
         else return true;
@@ -409,7 +615,7 @@ function IterateCreation (i, t) {
             get: t[e],
             enumerable: !0
         })
-    return;
+    return true;
 };
 function ChangeG (i, t, e, n) {
     if (t && typeof t == "object" || typeof t == "function")
