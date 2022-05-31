@@ -122,8 +122,7 @@ await db.connectToRedis({ // If no options added, it uses the DEFAULT REDIS SETT
 
 ## Suggestions:
 
-When creating the Database, add mongoose options, to spread the load on your db!
-
+ - When creating the Database, add mongoose options, to spread the load on your db!
 ```js
 const { Database } = require("quickmongo"); // npm i https://github.com/Tomato6966/quickmongo
 const mongoUri = process.env.mongoUri;
@@ -133,8 +132,19 @@ const db = new Database(mongoUri, {
     minPoolSize: 50, // minimum spreader
     writeConcern: "majority", // writer before get
 });
-
 ```
+ - Always create a TABLE and use the TABLES instead of the DB (it's easier, but has the same methods as the db, and are subinstances of the db)
+
+```js
+db.on("ready", async () => {
+  // Creating the Tables
+  global.settings = new db.table("settings");
+  global.economy = new db.table("economy");
+  console.log(`DB connected with a ${await client.database.ping()}ms Ping`);
+})
+```
+ - Always use a CACHED METHOD, and **prefer REDIS**
+
 ## Tests:
 
 If you're interested to see it changes test this:
@@ -238,7 +248,19 @@ async function doStuff() {
 }
 ```
 
-**Created and maintained by CesiumLabs**
+**Created and maintained by CesiumLabs - Cache Added and improved by Tomato6966**
 
-# Discord Support
+# OFFICIAL Discord Support (not of the cached version)
 **[CesiumLabs](https://discord.gg/uqB8kxh)**
+
+# Discord Sever - of the cached-version creator
+**[Milrato Development](https://discord.gg/milrato)**
+
+
+List of All Methods
+![image](https://user-images.githubusercontent.com/68145571/171263787-2004fff4-d71a-44b0-8569-36e3ac16a904.png)
+
+
+List of All Events
+![image](https://user-images.githubusercontent.com/68145571/171263811-43005cd3-f8ae-4576-85f4-d5323b0d5001.png)
+
