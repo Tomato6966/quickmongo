@@ -292,7 +292,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             
             // r = Util.getKeyMetadata("123.abc.ABC") = { master: '123', child: [ 'abc', 'ABC' ], target: 'abc.ABC' }
             
-            return await this.updateCache(r.master, s), await this.get(r.master)
+            return await this.updateCache(r.master, s), await this.get(t)
         } 
         // if its a non object based key
         else {
