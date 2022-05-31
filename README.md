@@ -2,21 +2,67 @@
 
 Quick Mongodb wrapper for beginners that provides key-value based interface.
 
-> Added an IN MEMORY CACHE by using `this.cache = new Map()`;
-> You can't access them, and **just use it as `quickmongo`**
-> The File handles all of the caching by itsself! (also resetting the cache if something changes in the db.........
+> Added Redis Cache, for fast, scaleable performance caching !
+ - OR IN MEMORY CACHE by using `this.cache = new Map()`;
+> The File handles all of the caching by itsself! 
 > *Fastens it up by ~90-125% (if you do many .set() requests == POST)*
 > *Fastens it up by over 300% (if you do many .get() requests == GET)*
 
 **Why is this good?**
-> You do not spam mongodb, and it's userfriendly, you don't need something like `redis` or `cache-manager`
-> NOTE: It's the simplest way of caching, and only applies if u got the request ONCE, so it's not "that efficient" but good enough if u plan on running ur app/programm for several hours!
+> You do not spam mongodb, and it's userfriendly, you don't need something like `redis` **but you CAN!**
+> It is a very Advanced way of Caching. Why?
+- When you set / get fresh data, it's stored in the cache, from then it will always use the cached values.
+- When you CHANGE something, it also changes it in the cache, which will be later used again
+- When you add / change something, it will also be changed in the whole cache too, so you can do db.all() and receive a fast response from the cache
+- It can be used with a redis-server -- **RECOMMENDED AND FULLY TESTED**
+  - Which is good, because even if you restart your process, the cached data will stay until you restart the redis server,
+  - If you are sharding, the redis-server will work too, since you can access the cache from multiple Servers!
 
 to install it: `npm install https://github.com/Tomato6966/quickmongo`
 
+## Example Connection strings:
+
+- Mongodb: `mongodb://<username>:<password>@<hostname/Ip>:<Port>/<DatabaseName>`
+  - `mongodb://tomato:quickmongo@127.0.0.1:27017/admin`
+  -  Defaults: 
+    -  IP: `127.0.0.1` | aka: `localhost`
+    -  Port: `27017`
+ 
+- Redis: `redis://<hostname/Ip>:<port>`
+  - `redis://127.0.0.1:6379`
+  -  Defaults: 
+    -  IP: `127.0.0.1` | aka: `localhost`
+    -  Port: `6379`
+ 
+> If you want to connect to a redis Server remotly, change the following in the `/etc/redis/redis.conf` (Redis configuration File):
+> `bind 127.0.0.1` --> `bind 127.0.0.1 <your_public_ipv4>` // Make sure there is no `#` infront of it
+> `#requirepass ...` --> `requirepass <yourConnectionPassword>` // Make sure there is no `#` infront of it
+
+## To self host a redis Server do this: [official Docs](https://redis.io/docs/getting-started)
+
+```bash
+curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+
+sudo apt-get update
+sudo apt-get install redis
+```
+Then Start it with cli
+```
+redis-server
+# OR:
+systemctl start redis
+
+# Status:
+systemctl status redis
+```
+To go in the redis-Command-Line-Interface type: `redis-cli`
+
 ## EXTRAS ADDED:
 
-> Getting things out of the cache will work until the max. cache duration is reached
+**Default Caching - Duration** == When to fetch the DB Again
+> Not using a Timeout, just using stored Timestamps - MEMORY FRIENDLY & FASTER & MORE RELYABLE
 
 ```js
 // How to change them
@@ -28,11 +74,19 @@ process.env.DB_cache_get = 0; // Delete the cache after X ms | 0 === never delet
 process.env.DB_cache_all = 0; // Delete the cache after X ms | 0 === never delete [DEFAULT: 600_000], -1 (or less) == disabled cache
 ```
 
+
 ```js
 
 const { Database } = require("quickmongo"); // npm i https://github.com/Tomato6966/quickmongo
-const mongoUri = process.env.mongoUri;
+const mongoUri = process.env.mongoUri; // EXAMPLE: "mongodb://<username>:<password>@<hostname/Ip>:<Port>/<DatabaseName>"
 const db = new Database(mongoUri);
+
+// use a redis cache, INSTEAD of a MAP(inmemory) Cache:
+await db.connectToRedis({ // If no options added, it uses the DEFAULT REDIS SETTINGS
+  password: process.env.redisPassword || `yourstrongpassword`, 
+  url: process.env.redisUrl || `redis://127.0.0.1:6379`,
+  retry_strategy: () => 1000
+}); 
 
 // CHANGES FOR THE .get() method
 db.get("key"); // 1. Time getting --> Fetch from db
@@ -50,6 +104,21 @@ db.all(); // 2. Time getting --> Get it from the cache (intsant)
 db.all(true) // 3. Time getting --> Force-fetch from db (you can add , true for fetching)
 
 ```
+
+## Connect a redis Server
+
+1. Create a Database
+```
+const db = new Database(mongoUri);
+```
+2. Execute the `db.connectToRedis()` Function (if no options added, it uses the DEFAULT REDIS SETTINGS)
+```
+await db.connectToRedis({ // If no options added, it uses the DEFAULT REDIS SETTINGS
+  password: process.env.redisPassword || `yourstrongpassword`, 
+  url: process.env.redisUrl || `redis://127.0.0.1:6379`,
+  retry_strategy: () => 1000
+}); 
+``` 
 
 ## Suggestions:
 
@@ -104,7 +173,9 @@ npm install --save https://github.com/Tomato6966/quickmongo # for the adjusted o
 npm install --save quickmongo # for the original without cache
 ```
 
-# Documentation
+# FROM HERE ON THE OFFICIAL README IS DISPLAYED OF THE OFFICIAL WRAPPER!
+
+# Documentation - Official from the https://quickmongo.js.org Page!
 **[https://quickmongo.js.org](https://quickmongo.js.org)**
 
 # Features
@@ -115,7 +186,7 @@ npm install --save quickmongo # for the original without cache
 - Easy to use
 - TTL (temporary storage) supported
 
-# Example
+# Example - 
 
 ```js
 import { Database } from "quickmongo";
