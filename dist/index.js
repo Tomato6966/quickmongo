@@ -50,44 +50,6 @@ const UtilClass = class extends null {
     static createDuration(t) {
         return UtilClass.shouldExpire(t) ? new Date(Date.now() + t) : null
     }
-    
-    static checkObjectDeep(dd, data) {
-        let changed = false;
-        // Layer 1
-        for (const [Okey_1, value_1] of Object.entries(data)) {
-          if(!dd[Okey_1] && dd[Okey_1] === undefined) {
-            dd[Okey_1] = value_1; changed = true;
-          } else if(value_1 && typeof value_1 == "object") {
-            // Layer 2
-            for (const [Okey_2, value_2] of Object.entries(value_1)) {
-              if(!dd[Okey_1][Okey_2] && dd[Okey_1][Okey_2] === undefined) {
-                dd[Okey_1][Okey_2] = value_2; changed = true;
-              } else if(value_2 && typeof value_2 == "object")  {
-                // Layer 3
-                for (const [Okey_3, value_3] of Object.entries(value_2)) {
-                  if(!dd[Okey_1][Okey_2][Okey_3] && dd[Okey_1][Okey_2][Okey_3] === undefined) {
-                    dd[Okey_1][Okey_2][Okey_3] = value_3; changed = true;
-                  } else if(value_3 === "object") {
-                    // Layer 4
-                    for (const [Okey_4, value_4] of Object.entries(value_3)) {
-                      if(!dd[Okey_1][Okey_2][Okey_3][Okey_4] && dd[Okey_1][Okey_2][Okey_3][Okey_4] === undefined) {
-                        dd[Okey_1][Okey_2][Okey_3][Okey_4] = value_4; changed = true;
-                      } else if(value_4 === "object") {
-                        continue;
-                      } else continue; 
-                    }
-                    // End of layer 4
-                  } else continue; 
-                }
-                // End of layer 3
-              } else continue;
-            }
-            // End of layer 2
-          } else continue;
-        }
-        if(changed) return dd;
-        else return false;
-    }
 };
 const DatabaseClass = class extends Tinyfy.TypedEmitter {
     constructor(t, e = {}) {
@@ -115,7 +77,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             configurable: !0
         })
     }
-
+    
     // UTILS for the CACHE
     formatCache(data) {
         return this.redisCache ? JSON.stringify(data) : data
@@ -167,11 +129,15 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         })
     }
 
+    cacheKey(key) {
+        return `${this.model?.collection?.name || "DB"}_${key}`;
+    }
+
     // CACHE + FETCH FROM MONGODB
     async get(key, forceFetch = false) {
         let t_Ping = Date.now();
         const Master = UtilClass.getKey(key);
-        const cacheValue = await this.cache.get(Master);
+        const cacheValue = await this.cache.get(this.cacheKey(Master));
         
         if (cacheValue && !forceFetch && this.cacheTimeout.get > -1 && (this.cacheTimeout.get == 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(Master)) > 0)) {
             const RawData = this.parseCache(cacheValue)
@@ -188,10 +154,9 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 console.error("GET DB KEY NOT EXISTING")
                 return this.__formatData(RawData)
             }
-            
             // Update the PING
             const ping = Date.now() - t_Ping;
-            await this.cache.set(this.pingkey, this.formatCache(ping));
+            await this.cache.set(this.cacheKey(this.pingkey), this.formatCache(ping));
             this.timeoutcache.set(this.pingkey, Date.now()); 
 
             // Return the picked Data
@@ -211,7 +176,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         } else {
             if(!allDatabaseUpdate) {
                 // Update the TOTAL DATABASE
-                const allCachedDB = await this.cache.get(this.keyForAll); 
+                const allCachedDB = await this.cache.get(this.cacheKey(this.keyForAll)); 
                 if(allCachedDB) {
                     // lodash.set(Data, r.target, e)
                     const parsedData = this.parseCache(allCachedDB);
@@ -225,20 +190,20 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                             parsedData.push(allDataPath);
                         }
                     }
-                    await this.cache.set(this.keyForAll, this.formatCache(parsedData)); 
+                    await this.cache.set(this.cacheKey(this.keyForAll), this.formatCache(parsedData)); 
                 }
                 // Update the sub key caches
-                await this.cache.set(key, this.formatCache(data));
+                await this.cache.set(this.cacheKey(key), this.formatCache(data));
                 this.timeoutcache.set(key, Date.now()); 
                 return true;
             } else {
-                await this.cache.set(key, this.formatCache(data));
+                await this.cache.set(this.cacheKey(key), this.formatCache(data));
                 this.timeoutcache.set(key, Date.now()); 
                 if(typeof data != "object" && !Array.isArray(data)) return console.error("ALL DATA but not an ARRAY?");
                 
                 // Set cache of all subvalues
                 for(const d of data) {
-                    await this.cache.set(`${d.ID}`, this.formatCache(d.data))
+                    await this.cache.set(this.cacheKey(`${d.ID}`), this.formatCache(d.data))
                     this.timeoutcache.set(`${d.ID}`, Date.now()); 
                     continue;
                 }
@@ -291,7 +256,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             });
             
             // r = Util.getKeyMetadata("123.abc.ABC") = { master: '123', child: [ 'abc', 'ABC' ], target: 'abc.ABC' }
-            
+
             return await this.updateCache(r.master, s), await this.get(t)
         } 
         // if its a non object based key
@@ -322,45 +287,74 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     }
 
     // Make sure that there is specific data in the db (works with key and key.subkey.subsubkey....)
-    async ensure(key, defaultObject) {
-        this.__readyCheck();
-        if(_.isNil(defaultObject)) {
-            throw new Error(`No default value for for "${key}"`)
-        }
-        
-        const newData = lodash.clone(defaultObject);
-        const r = UtilClass.getKeyMetadata(key);
-
-        // get the current master data if 
-        const dbData = await this.get(r.master) || {};
-        // if there is a target, check for the target
-        if(r.target) {
-            if(lodash.has(dbData, r.target)) {
-                const pathData = lodash.get(newData, r.target)
-                const newPathData = UtilClass.checkObjectDeep(pathData, data);
-                // something has changed
-                if(newPathData) {
-                    lodash.set(newData, path, newPathData);
-                    await db.set(r.master, newData);
-                    return res({ changed: true });
-                }
-                return res({ changed: false }); 
+    async ensure(key, defaultObject, extra_delay = 15) {
+        return new Promise(async (res) => {
+            this.__readyCheck();
+            if(lodash.isNil(defaultObject)) {
+                throw new Error(`No default value for for "${key}"`)
             }
-            // if it's not in the dbData, then set it
-            lodash.set(dbData, r.target, newData)
-            await db.set(r.master, dbData);
-            return res({ changed: true });
+            const newData = lodash.clone(defaultObject);
+            const r = UtilClass.getKeyMetadata(key);
+            // get the current master data if 
+            let dbData = await this.get(r.master) || {};
+            if(typeof dbData != "object") {
+                console.error("No dbdata object, force setting it to one");
+                dbData = {};
+            }
+            // if there is a target, check for the target
+            if(r.target) {
+                if(lodash.has(dbData, r.target)) {
+                    const pathData = lodash.get(dbData, r.target)
+                    const newPathData = await checkObjectDeep(pathData, newData);
+                    // something has changed
+                    if(newPathData) {
+                        lodash.set(dbData, r.target, newPathData);
+                        await this.set(r.master, dbData);
+                        return res({ changed: true });
+                    }
+                    return res({ changed: false }); 
+                }
+                // if it's not in the dbData, then set it
+                lodash.set(dbData, r.target, newData)
+                await this.set(r.master, dbData);
+                return res({ changed: true });
+            }
+            // check for non-targets object changes
+            const newPathData = await checkObjectDeep(dbData, newData);
+            // something has changed
+            if(newPathData) {
+                await this.set(r.master, newPathData);
+                return res({ changed: true });
+            } 
+            // return something
+            return res({ changed: false }); 
+        })
+        
+        async function checkObjectDeep(dd, data) {
+            return new Promise(async (res) => {
+                let changed = false;
+        
+                const visitNodes = (obj, visitor, stack = []) => {
+                    if (typeof obj === 'object') {
+                        for (let key in obj) {
+                        visitNodes(obj[key], visitor, [...stack, key]);
+                        }
+                    } else {
+                        visitor(stack.join('.').replace(/(?:\.)(\d+)(?![a-z_])/ig, '[$1]'), obj);
+                    }
+                }
+                
+                visitNodes(data, (path, value) => {
+                    if(!lodash.has(dd, path)) {
+                        lodash.set(dd, path, value);
+                        changed = true;
+                    }
+                });
+        
+                if(changed) return res(dd);
+                return res(false);
+            })        
         }
-        // check for non-targets object changes
-        const newPathData = UtilClass.checkObjectDeep(newData, data);
-        // something has changed
-        if(newPathData) {
-            Object.assign(newData, newPathData);
-            await db.set(r.master, newData);
-            return res({ changed: true });
-        } 
-        // return something
-        return res({ changed: false }); 
     }
     
     // Delete properties from the Object and from the Cache
@@ -370,7 +364,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
 
         if (!Key.target) {
             // remove from the CACHE
-            this.redisCache ? await this.cache.sendCommand(['DEL', Key.master]) : this.cache.delete(Key.master)
+            this.redisCache ? await this.cache.sendCommand(['DEL', this.cacheKey(Key.master)]) : this.cache.delete(this.cacheKey(Key.master))
 
             // remove from the DB
             return (await this.model.deleteOne({
@@ -387,7 +381,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         // remove the target from the object
         lodash.unset(formattedData, Key.target);
         // Save the new Cache (just a key of the object got removed that's why)
-        this.redisCache ? await this.cache.set(Key.master, formattedData) : this.cache.set(Key.master);
+        await this.updateCache(Key.master, formattedData)
         // Update the DB with the removed object
         await Document.updateOne({
             $set: {
@@ -415,7 +409,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     async count(forceFetch = true) {
         if(forceFetch) return await this.model.estimatedDocumentCount()
 
-        const cacheValue = await this.cache.get(this.keyForAll);
+        const cacheValue = await this.cache.get(this.cacheKey(this.keyForAll));
         if(cacheValue) {
             return this.parseCache(cacheValue).length;
         }
@@ -426,14 +420,14 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     // ping the db by fetching data + save it in the cache
     async ping(forceFetch = false) {
         const t_Ping = Date.now();
-        const cacheValue = await this.cache.get(this.pingkey);
+        const cacheValue = await this.cache.get(this.cacheKey(this.pingkey));
         
         if (cacheValue && !forceFetch && this.cacheTimeout.ping > -1 && (this.cacheTimeout.ping == 0 || this.cacheTimeout.ping - (Date.now() - this.timeoutcache.get(this.pingkey)) > 0)) {
             return this.parseCache(cacheValue)
         } else {
             await this.get(this.pingkey, true)
             const ping = Date.now() - t_Ping;
-            await this.cache.set(this.pingkey, this.formatCache(ping));
+            await this.cache.set(this.cacheKey(this.pingkey), this.formatCache(ping));
             this.timeoutcache.set(this.pingkey, Date.now()); 
             return ping;
         }
@@ -483,8 +477,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     async all(t, forceFetch = false) {
         this.__readyCheck();
         
-        // await this.cache.set(keyForAll, JSON.stringify(false));
-        const cacheValue = await this.cache.get(this.keyForAll);
+        const cacheValue = await this.cache.get(this.cacheKey(this.keyForAll));
         if (cacheValue && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(this.keyForAll)) > 0)) {
             const CacheResult = this.parseCache(cacheValue);
             return typeof t?.limit == "number" && t.limit > 0 ? CacheResult.slice(0, t.limit) : CacheResult;
@@ -493,7 +486,6 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 ID: r.ID,
                 data: this.__formatData(r)
             })).filter((r, o) => t?.filter ? t.filter(r, o) : !0);
-            
             if (typeof t?.sort == "string") {
                 t.sort.startsWith(".") && (t.sort = t.sort.slice(1));
                 let r = t.sort.split(".");
