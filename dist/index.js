@@ -175,7 +175,6 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             console.error("updateCache :: provided key with '.'");
         } else {
             if(!allDatabaseUpdate) {
-                // Update the TOTAL DATABASE
                 const allCachedDB = await this.cache.get(this.cacheKey(this.keyForAll)); 
                 if(allCachedDB) {
                     // lodash.set(Data, r.target, e)
