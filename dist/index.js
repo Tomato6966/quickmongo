@@ -88,19 +88,28 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     // CACHE - USE REDIS
     async connectToRedis(RedisSettings) {
         return new Promise(async res => {
-            // REDIS
-            const redisClient = redis.createClient(RedisSettings);
-    
-            redisClient.on('error', (err) => console.log('Redis Client Error', err));
-            redisClient.on('connect', () => console.log('Redis Client connected'));
-            redisClient.on('ready', async () => {
-                console.log('Redis Client ready')
+            if(RedisSettings.cluster) {
+                const redisClient = redis.createCluster(RedisSettings.cluster)
+                redisClient.on('error', (err) => console.log('Redis Client Error', err));
+                redisClient.connect().then((_) => {
+                    console.log('Redis Client ready');
+                    this.cache = redisClient;
+                    this.redisCache = true;
+                    return res(redisClient);
+                }).catch(e => console.error('FAILED FOR Redis Client', e))
+            } else {
+                const redisClient = redis.createClient(RedisSettings)
+                redisClient.on('error', (err) => console.log('Redis Client Error', err));
+                redisClient.on('connect', () => console.log('Redis Client connected'));
+                redisClient.on('ready', async () => {
+                    console.log('Redis Client ready')
 
-                this.cache = redisClient;
-                this.redisCache = true
-                return res(redisClient);
-            });
-            redisClient.connect();
+                    this.cache = redisClient;
+                    this.redisCache = true
+                    return res(redisClient);
+                });
+                redisClient.connect();
+            }
         })
     }
 
@@ -141,19 +150,15 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         
         if (cacheValue && !forceFetch && this.cacheTimeout.get > -1 && (this.cacheTimeout.get == 0 || this.cacheTimeout.get - (Date.now() - this.timeoutcache.get(Master)) > 0)) {
             const RawData = this.parseCache(cacheValue)
-            if(!RawData || RawData === null) {
-                console.error("GET DB KEY NOT EXISTING IN CACHE")
-                return RawData
-            }
+            if(!RawData || RawData === null) return RawData
+            
             // Return the picked Data
             return UtilClass.pick(RawData, key);
         } else {
             const RawData = await this.getRaw(Master)
 
-            if(RawData === null || !this.__formatData(RawData)) {
-                console.error("GET DB KEY NOT EXISTING")
-                return this.__formatData(RawData)
-            }
+            if(RawData === null || !this.__formatData(RawData)) return this.__formatData(RawData)
+            
             // Update the PING
             const ping = Date.now() - t_Ping;
             await this.cache.set(this.cacheKey(this.pingkey), this.formatCache(ping));
