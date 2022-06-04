@@ -62,7 +62,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         this.cache = new Map();
         this.redisCache = false;
         this.pingkey = "SOMETHING_RANDOM_FOR_PING"
-        
+        this.cacheAllDb = process.env.DB_DONT_CACHE_ALL_DB ? false : true;
         this.keyForAll = `ALLDATABASE_${this.model?.collection?.name || "DB"}_ALLDATABASE`;
 
         this.timeoutcache = new Map(), 
@@ -91,7 +91,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             if(RedisSettings.cluster) {
                 const redisClient = redis.createCluster(RedisSettings.cluster)
                 redisClient.on('error', (err) => console.log('Redis Client Error', err));
-                redisClient.connect().then((_) => {
+                redisClient.connect().then(async (_) => {
                     console.log('Redis Client ready');
                     this.cache = redisClient;
                     this.redisCache = true;
@@ -103,7 +103,6 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 redisClient.on('connect', () => console.log('Redis Client connected'));
                 redisClient.on('ready', async () => {
                     console.log('Redis Client ready')
-
                     this.cache = redisClient;
                     this.redisCache = true
                     return res(redisClient);
@@ -180,37 +179,43 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             console.error("updateCache :: provided key with '.'");
         } else {
             if(!allDatabaseUpdate) {
-                const allCachedDB = await this.cache.get(this.cacheKey(this.keyForAll)); 
-                if(allCachedDB) {
-                    // lodash.set(Data, r.target, e)
-                    const parsedData = this.parseCache(allCachedDB);
-                    if(typeof parsedData == "object" && Array.isArray(parsedData)) {
-                        const allDataPath = { ID: key, data: data };
-                        const specificData = parsedData.find(d => d.ID == key);
-                        const specificIndex = parsedData.findIndex(d => d.ID == key);
-                        if(specificData && specificIndex > -1) {
-                            parsedData[Number(specificIndex)] = allDataPath
-                        } else {
-                            parsedData.push(allDataPath);
+                if(this.cacheAllDb) {
+                    const allCachedDB = await this.cache.get(this.cacheKey(this.keyForAll)); 
+                    if(allCachedDB) {
+                        // lodash.set(Data, r.target, e)
+                        const parsedData = this.parseCache(allCachedDB);
+                        if(typeof parsedData == "object" && Array.isArray(parsedData)) {
+                            const allDataPath = { ID: key, data: data };
+                            const specificData = parsedData.find(d => d.ID == key);
+                            const specificIndex = parsedData.findIndex(d => d.ID == key);
+                            if(specificData && specificIndex > -1) {
+                                parsedData[Number(specificIndex)] = allDataPath
+                            } else {
+                                parsedData.push(allDataPath);
+                            }
                         }
-                    }
-                    await this.cache.set(this.cacheKey(this.keyForAll), this.formatCache(parsedData)); 
+                        await this.cache.set(this.cacheKey(this.keyForAll), this.formatCache(parsedData)); 
+                    } 
                 }
                 // Update the sub key caches
                 await this.cache.set(this.cacheKey(key), this.formatCache(data));
-                this.timeoutcache.set(key, Date.now()); 
+                this.timeoutcache.set(key, Date.now());   
+                
                 return true;
             } else {
-                await this.cache.set(this.cacheKey(key), this.formatCache(data));
-                this.timeoutcache.set(key, Date.now()); 
                 if(typeof data != "object" && !Array.isArray(data)) return console.error("ALL DATA but not an ARRAY?");
+                
+                await this.cache.set(this.cacheKey(key), this.formatCache(data));
+                //if(this.redisCache) await new Promise(r => setTimeout(() => r(2), 25));
+                this.timeoutcache.set(key, Date.now()); 
                 
                 // Set cache of all subvalues
                 for(const d of data) {
                     await this.cache.set(this.cacheKey(`${d.ID}`), this.formatCache(d.data))
-                    this.timeoutcache.set(`${d.ID}`, Date.now()); 
-                    continue;
+                    if(this.redisCache) await new Promise(r => setTimeout(() => r(2), 10));
+                    this.timeoutcache.set(`${d.ID}`, Date.now());
                 }
+
                 return true;
             }
         }
@@ -368,7 +373,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
 
         if (!Key.target) {
             // remove from the CACHE
-            this.redisCache ? await this.cache.sendCommand(['DEL', this.cacheKey(Key.master)]) : this.cache.delete(this.cacheKey(Key.master))
+            this.redisCache ? await this.cache.del(this.cacheKey(Key.master)) : this.cache.delete(this.cacheKey(Key.master))
 
             // remove from the DB
             return (await this.model.deleteOne({
@@ -412,10 +417,11 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     // Mongodb Collection Size [Default is forceFetching aka not getting from cache]
     async count(forceFetch = true) {
         if(forceFetch) return await this.model.estimatedDocumentCount()
-
-        const cacheValue = await this.cache.get(this.cacheKey(this.keyForAll));
-        if(cacheValue) {
-            return this.parseCache(cacheValue).length;
+        if(this.cacheAllDb) {
+            const cacheValue = await this.cache.get(this.cacheKey(this.keyForAll));
+            if(cacheValue) {
+                return this.parseCache(cacheValue).length;
+            }
         }
         
         return await this.model.estimatedDocumentCount()
@@ -445,6 +451,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             parent: this,
             cache: this.redisCache ? this.cache : new Map(),
             redisCache: this.redisCache,
+            cacheAllDb: this.cacheAllDb,
             keyForAll: `ALLDATABASE_${t || "DB"}_ALLDATABASE`,
             collectionName: t,
             shareConnectionFromParent: !!e || !0
@@ -464,6 +471,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 }
                 r.connection = this.connection;
                 r.model = Indexer(this.connection, n);
+                r.cacheAllDb = this.cacheAllDb;
                 r.keyForAll = `ALLDATABASE_${r.model?.collection?.name || "DB"}_ALLDATABASE`
                 
                 return r.connect = () => Promise.resolve(r), Object.defineProperty(r, "table", {
@@ -480,10 +488,25 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     // Fetch complete Mongodb + Set the Cache
     async all(t, forceFetch = false) {
         this.__readyCheck();
-        
+
+        if(!this.cacheAllDb) {
+            let n = (await this.model.find().lean()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
+                ID: r.ID,
+                data: this.__formatData(r)
+            })).filter((r, o) => t?.filter ? t.filter(r, o) : !0);
+            if (typeof t?.sort == "string") {
+                t.sort.startsWith(".") && (t.sort = t.sort.slice(1));
+                let r = t.sort.split(".");
+                n = lodash.sortBy(n, r).reverse()
+            }
+            return typeof t?.limit == "number" && t.limit > 0 ? n.slice(0, t.limit) : n;
+        }
+
         const cacheValue = await this.cache.get(this.cacheKey(this.keyForAll));
         if (cacheValue && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(this.keyForAll)) > 0)) {
             const CacheResult = this.parseCache(cacheValue);
+            
+            if(this.redisCache) await new Promise(r => setTimeout(() => r(2), 50));
             return typeof t?.limit == "number" && t.limit > 0 ? CacheResult.slice(0, t.limit) : CacheResult;
         } else {
             let n = (await this.model.find().lean()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
