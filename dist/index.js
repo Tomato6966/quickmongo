@@ -62,7 +62,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         this.cache = new Map();
         this.redisCache = false;
         this.pingkey = "SOMETHING_RANDOM_FOR_PING"
-        this.cacheAllDb = process.env.DB_DONT_CACHE_ALL_DB ? false : true;
+        this.cacheAllDb = process.env.DB_DONT_CACHE_ALL_DB && String(process.env.DB_DONT_CACHE_ALL_DB) === "true" ? false : true;
         this.keyForAll = `ALLDATABASE_${this.model?.collection?.name || "DB"}_ALLDATABASE`;
 
         this.timeoutcache = new Map(), 
