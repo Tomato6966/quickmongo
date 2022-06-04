@@ -74,7 +74,6 @@ process.env.DB_cache_get = 0; // Delete the cache after X ms | 0 === never delet
 process.env.DB_cache_all = 0; // Delete the cache after X ms | 0 === never delete [DEFAULT: 600_000], -1 (or less) == disabled cache
 ```
 
-
 ```js
 
 const { Database } = require("quickmongo"); // npm i https://github.com/Tomato6966/quickmongo
@@ -120,6 +119,35 @@ await db.connectToRedis({ // If no options added, it uses the DEFAULT REDIS SETT
 }); 
 ``` 
 
+### Connect to a redis-Server **CLUSTER**
+> See: https://github.com/redis/node-redis/blob/master/docs/clustering.md
+> To connect to a redis cluster, instead of adding a PLAIN OBJECT, add a OBJECT with they key "cluster"
+1. Create a Database
+```
+const db = new Database(mongoUri);
+```
+2. Execute the `db.connectToRedis()` Function (if no options added, it uses the DEFAULT REDIS SETTINGS)
+```
+await db.connectToRedis({
+  cluster: {
+   defaults: {
+      password: process.env.redisPassword || `yourstrongpassword`, 
+      retry_strategy: () => 1000
+   },
+   rootNodes: [ 
+     { 
+       url: process.env.redisUrl || `redis://127.0.0.1:7000`
+     },
+     { 
+       url: process.env.redisUrl || `redis://127.0.0.1:7001`
+     },
+     { 
+       url: process.env.redisUrl || `redis://127.0.0.1:7002`
+     }
+   ]
+  }
+}); 
+```
 ## Suggestions:
 
  - When creating the Database, add mongoose options, to spread the load on your db!
