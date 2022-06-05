@@ -1,7 +1,7 @@
 {
   "name": "quickmongo",
-  "version": "6.3.0",
-  "description": "Quick Mongodb wrapper for beginners that provides key-value based interface.",
+  "version": "7.0.0",
+  "description": "Quick Mongodb wrapper for beginners that provides key-value based interface. - Improved by Tomato#6966 for Caching",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -76,6 +76,7 @@
     "lodash": "^4.17.21",
     "mongoose": "^6.0.13",
     "redis": "^4.1.0",
+    "redis-connection-pool": "^2.0.3",
     "tiny-typed-emitter": "^2.1.0"
   }
 }
