@@ -63,6 +63,18 @@ To go in the redis-Command-Line-Interface type: `redis-cli`
 
 **Default Caching - Duration** == When to fetch the DB Again
 > Not using a Timeout, just using stored Timestamps - MEMORY FRIENDLY & FASTER & MORE RELYABLE
+> Able to use node-redis-connection-pool for pooling settings Example:
+```js
+// Just provide those redis settings to use redis-connection-pool
+const RedisSettings = {
+    redis: { //standard "node-redis" aka "redis" settings
+        password: redis.password, 
+        url: redis.url,
+        retry_strategy: () => 1000
+    },
+    max_clients: 50,
+}
+```
 
 ```js
 // How to change them
