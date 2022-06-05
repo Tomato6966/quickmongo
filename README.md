@@ -35,7 +35,9 @@ to install it: `npm install https://github.com/Tomato6966/quickmongo`
      -  Port: `6379`
  
 > If you want to connect to a redis Server remotly, change the following in the `/etc/redis/redis.conf` (Redis configuration File):
+> 
 > `bind 127.0.0.1` --> `bind 127.0.0.1 <your_public_ipv4>` // Make sure there is no `#` infront of it
+> 
 > `#requirepass ...` --> `requirepass <yourConnectionPassword>` // Make sure there is no `#` infront of it
 
 ## To self host a redis Server do this: [official Docs](https://redis.io/docs/getting-started)
@@ -62,8 +64,11 @@ To go in the redis-Command-Line-Interface type: `redis-cli`
 ## EXTRAS ADDED:
 
 **Default Caching - Duration** == When to fetch the DB Again
+
 > Not using a Timeout, just using stored Timestamps - MEMORY FRIENDLY & FASTER & MORE RELYABLE
-> Able to use node-redis-connection-pool for pooling settings Example:
+> 
+> Able to use [node-redis-connection-pool](https://github.com/silverbucket/node-redis-connection-pool) for pooling settings Example:
+
 ```js
 // Just provide those redis settings to use redis-connection-pool
 const RedisSettings = {
