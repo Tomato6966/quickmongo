@@ -3,6 +3,7 @@ const Tinyfy = require("tiny-typed-emitter");
 const lodash = require("lodash");
 const fs = require("fs");
 const redis = require("redis");
+const { RedisConnectionPool } = require("redis-connection-pool")
 const util = require("util");
 const StandardSchema = new mongoose.Schema({
     ID: {
@@ -92,6 +93,15 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 const redisClient = redis.createCluster(RedisSettings.cluster)
                 redisClient.on('error', (err) => console.log('Redis Client Error', err));
                 redisClient.connect().then(async (_) => {
+                    console.log('Redis Client ready');
+                    this.cache = redisClient;
+                    this.redisCache = true;
+                    return res(redisClient);
+                }).catch(e => console.error('FAILED FOR Redis Client', e))
+            } else if(RedisSettings.redis && RedisSettings.max_clients) {
+                const redisClient = new RedisConnectionPool('myRedisPool', RedisSettings);
+                
+                await redisClient.init().then(async (_) => {
                     console.log('Redis Client ready');
                     this.cache = redisClient;
                     this.redisCache = true;
