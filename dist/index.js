@@ -667,7 +667,5 @@ IterateCreation(I, {
 
 module.exports = ExportFormat(I);
 0 && (module.exports = {
-    Database,
-    Util,
-    docSchema
+    Database, Util, docSchema
 });
