@@ -61,7 +61,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         this.__child__ = !1;
         this.model = null;
         this.cache = new Map();
-        this.redisCache = false;
+        this.customCache = false;
         this.pingkey = "SOMETHING_RANDOM_FOR_PING"
         this.cacheAllDb = process.env.DB_DONT_CACHE_ALL_DB && String(process.env.DB_DONT_CACHE_ALL_DB) === "true" ? false : true;
         this.keyForAll = `ALLDATABASE_${this.model?.collection?.name || "DB"}_ALLDATABASE`;
@@ -81,10 +81,10 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     
     // UTILS for the CACHE
     formatCache(data) {
-        return this.redisCache ? JSON.stringify(data) : data
+        return this.customCache ? JSON.stringify(data) : data
     }
     parseCache(data) {
-        return this.redisCache ? JSON.parse(data) : data
+        return this.customCache ? JSON.parse(data) : data
     }
     // CACHE - USE REDIS
     async connectToRedis(RedisSettings) {
@@ -93,18 +93,19 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 const redisClient = redis.createCluster(RedisSettings.cluster)
                 redisClient.on('error', (err) => console.log('Redis Client Error', err));
                 redisClient.connect().then(async (_) => {
-                    console.log('Redis Client ready');
+                    console.log('Redis-Client ready');
                     this.cache = redisClient;
-                    this.redisCache = true;
+                    this.customCache = true;
                     return res(redisClient);
                 }).catch(e => console.error('FAILED FOR Redis Client', e))
             } else if(RedisSettings.redis && RedisSettings.max_clients) {
+                RedisSettings.min_clients = RedisSettings.max_clients;
                 const redisClient = new RedisConnectionPool('myRedisPool', RedisSettings);
                 
                 await redisClient.init().then(async (_) => {
-                    console.log('Redis Client ready');
+                    console.log(`Redis-POOL (with ${redisClient.pool._config.max} Max-Pools) is ready`);
                     this.cache = redisClient;
-                    this.redisCache = true;
+                    this.customCache = true;
                     return res(redisClient);
                 }).catch(e => console.error('FAILED FOR Redis Client', e))
             } else {
@@ -112,14 +113,19 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 redisClient.on('error', (err) => console.log('Redis Client Error', err));
                 redisClient.on('connect', () => console.log('Redis Client connected'));
                 redisClient.on('ready', async () => {
-                    console.log('Redis Client ready')
+                    console.log('Redis-Cluster is ready')
                     this.cache = redisClient;
-                    this.redisCache = true
+                    this.customCache = true
                     return res(redisClient);
                 });
                 redisClient.connect();
             }
         })
+    }
+    async loadCustomCache(cache) {
+        this.cache = cache;
+        this.customCache = true;
+        return true;
     }
 
     isChild() {
@@ -216,13 +222,13 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 if(typeof data != "object" && !Array.isArray(data)) return console.error("ALL DATA but not an ARRAY?");
                 
                 await this.cache.set(this.cacheKey(key), this.formatCache(data));
-                //if(this.redisCache) await new Promise(r => setTimeout(() => r(2), 25));
+                //if(this.customCache) await new Promise(r => setTimeout(() => r(2), 25));
                 this.timeoutcache.set(key, Date.now()); 
                 
                 // Set cache of all subvalues
                 for(const d of data) {
                     await this.cache.set(this.cacheKey(`${d.ID}`), this.formatCache(d.data))
-                    if(this.redisCache) await new Promise(r => setTimeout(() => r(2), 10));
+                    if(this.customCache) await new Promise(r => setTimeout(() => r(2), 10));
                     this.timeoutcache.set(`${d.ID}`, Date.now());
                 }
 
@@ -383,7 +389,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
 
         if (!Key.target) {
             // remove from the CACHE
-            this.redisCache ? await this.cache.del(this.cacheKey(Key.master)) : this.cache.delete(this.cacheKey(Key.master))
+            this.customCache ? await this.cache.del(this.cacheKey(Key.master)) : this.cache.delete(this.cacheKey(Key.master))
 
             // remove from the DB
             return (await this.model.deleteOne({
@@ -417,7 +423,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
     // deleteAll Docs in the mongodb
     async deleteAll() {
         // Clear the cache
-        this.redisCache ? await this.cache.sendCommand(['FLUSHALL']) : this.cache.clear();
+        this.customCache ? await this.cache.sendCommand(['FLUSHALL']) : this.cache.clear();
         // Clear the DB
         const deleted = await this.model.deleteMany();
         // Show value
@@ -459,8 +465,8 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
             ...this.options,
             child: !0,
             parent: this,
-            cache: this.redisCache ? this.cache : new Map(),
-            redisCache: this.redisCache,
+            cache: this.customCache ? this.cache : new Map(),
+            customCache: this.customCache,
             cacheAllDb: this.cacheAllDb,
             keyForAll: `ALLDATABASE_${t || "DB"}_ALLDATABASE`,
             collectionName: t,
@@ -475,8 +481,8 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
                 let n = e[0];
                 if (!n || typeof n != "string") throw new TypeError("ERR_TABLE_NAME");
                 let r = new DatabaseClass(this.url, this.options, this.cacheTimeout);
-                if(this.redisCache) {
-                    r.redisCache = this.redisCache;
+                if(this.customCache) {
+                    r.customCache = this.customCache;
                     r.cache = this.cache;
                 }
                 r.connection = this.connection;
@@ -516,7 +522,7 @@ const DatabaseClass = class extends Tinyfy.TypedEmitter {
         if (cacheValue && !forceFetch && this.cacheTimeout.all > -1 && (this.cacheTimeout.all == 0 || this.cacheTimeout.all - (Date.now() - this.timeoutcache.get(this.keyForAll)) > 0)) {
             const CacheResult = this.parseCache(cacheValue);
             
-            if(this.redisCache) await new Promise(r => setTimeout(() => r(2), 50));
+            if(this.customCache) await new Promise(r => setTimeout(() => r(2), 50));
             return typeof t?.limit == "number" && t.limit > 0 ? CacheResult.slice(0, t.limit) : CacheResult;
         } else {
             let n = (await this.model.find().lean()).filter(r => !(r.expireAt && r.expireAt.getTime() - Date.now() <= 0)).map(r => ({
