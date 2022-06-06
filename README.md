@@ -20,6 +20,22 @@ Quick Mongodb wrapper for beginners that provides key-value based interface.
 
 to install it: `npm install https://github.com/Tomato6966/quickmongo`
 
+### Suggestion
+> You can use it with `redis` or if you want to keep the SPEED of a MAP Based Cache, you can use `npm i remote-map-cache` as a CUSTOMCACHE by doing:
+> db.loadCustomCache(customCache) 
+```js
+const { remoteCacheClient } = require("remote-map-cache");
+const { Database } = require("quickmongo");
+
+const customCache = new remoteCacheClient({
+  username: "cacheUsername", password: "password",
+  port: 4040, host: "hostname|ipaddress|localhost", tls: true
+}); // more infos at: https://npmjs.org/remote-map-cache
+
+const db = new Database(mongoUri, options)
+db.loadCustomCache(customCache);
+```
+
 ## Example Connection strings:
 
 - Mongodb: `mongodb://<username>:<password>@<hostname/Ip>:<Port>/<DatabaseName>`
